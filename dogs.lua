@@ -95,63 +95,89 @@ function ms.register_scanner(args)
     ms.scanners_changed = true
 end
 
-function ms.register_worker(args)
+function ms.remove_worker(name)
+    for i = 1, #ms.workers do
+        if ms.workers[i] and ms.workers[i].name == name then
+            ms.workers_by_name[name] = nil
+            table.remove(ms.workers, i)
+            ms.workers_changed = true
+        end
+    end
+end
+
+ms.worker = {}
+local worker = ms.worker
+worker.__index = worker
+
+function worker.new(args)
+    local w = {}
     local args = table.copy(args)
-    local needed_labels = args.needed_labels or {}
-    local has_one_of = args.has_one_of or {}
-    local rework_labels = args.rework_labels or {}
-    table.insert(needed_labels, "chunk_tracked")
-    table.insert(needed_labels, "scanned")
     if type(args.fun) ~= "function" then
         minetest.log("error", "Mapchunk shepherd: Trying to register worker \""..
                      args.name.."\" but argument \"fun\" is not a function!")
         return
     end
-    local function basic_catch_up(hash, chance)
-        local labels = ms.get_labels(hash)
-        local elapsed = ms.labels.oldest_elapsed_time(labels, rework_labels)
-        if elapsed == 0 then
-            return chance
-        end
-        local missed_cycles = elapsed / args.work_every
-        local new_chance = chance * missed_cycles
-        return new_chance
+    w.name = args.name
+    w.fun = args.fun
+    w.needed_labels = args.needed_labels or {}
+    w.has_one_of = args.has_one_of or {}
+    w.rework_labels = args.rework_labels or {}
+    table.insert(w.needed_labels, "chunk_tracked")
+    table.insert(w.needed_labels, "scanned")
+    w.work_every = args.work_every
+    w.chance = args.chance
+    w.catch_up = args.catch_up
+    w.catch_up_function = args.catch_up_function
+    w.afterworker = args.afterworker
+    return setmetatable(w, worker)
+end
+
+function worker:register()
+    if is_worker_registered(self.name) then
+        ms.workers_changed = true
+        return
     end
-    if not is_worker_registered(args.name) then
-        local worker = {
-            name = args.name,
-            worker_function = function(pos_min, pos_max, vm_data)
-                return args.fun(pos_min, pos_max, vm_data)
-            end,
-            needed_labels = needed_labels,
-            has_one_of = has_one_of,
-            work_every = args.work_every,
-            rework_labels = rework_labels,
-            chance = args.chance,
-            catch_up = args.catch_up,
-            catch_up_function = args.catch_up_function or basic_catch_up,
-        }
-        if args.afterworker then
-            worker.afterworker = function(hash)
-                return args.afterworker(hash)
-            end
-        end
-        if args.chance then
-            worker.worker_function = function(pos_min, pos_max, vm_data)
-                return args.fun(pos_min, pos_max, vm_data, worker.chance)
-            end
-        end
-        if args.catch_up then
-            worker.worker_function = function(pos_min, pos_max, vm_data)
-                local hash = ms.mapchunk_hash(pos_min)
-                local new_chance = worker.catch_up_function(hash, worker.chance)
-                return args.fun(pos_min, pos_max, new_chance)
-            end
-        end
-        table.insert(ms.workers, worker)
-        ms.workers_by_name[args.name] = worker
+    table.insert(ms.workers, self)
+    ms.workers_by_name[self.name] = self
+end
+
+function worker:unregister()
+    ms.remove_worker(self.name)
+end
+
+-- function worker:worker_function(pos_min, pos_max, vm_data)
+function worker:run(pos_min, pos_max, vm_data)
+    if self.catch_up then
+        local hash = ms.mapchunk_hash(pos_min)
+        local new_chance = self:run_catch_up(hash, self.chance)
+        return self.fun(pos_min, pos_max, vm_data, new_chance)
     end
-    ms.workers_changed = true
+    return self.fun(pos_min, pos_max, vm_data, self.chance)
+end
+
+function worker:basic_catch_up(hash, chance)
+    local labels = ms.get_labels(hash)
+    local elapsed = ms.labels.oldest_elapsed_time(labels, self.rework_labels)
+    if elapsed == 0 then
+        return chance
+    end
+    local missed_cycles = elapsed / self.work_every
+    local new_chance = chance * missed_cycles
+    return new_chance
+end
+
+-- function worker:catch_up_function()
+function worker:run_catch_up()
+    if self.catch_up_function then
+        return self.catch_up_function(hash, chance)
+    end
+    return self:basic_catch_up(hash, chance)
+end
+
+function worker:run_afterworker(hash)
+    if self.afterworker then
+        self.afterworker(hash)
+    end
 end
 
 function ms.remove_scanner(name)
@@ -160,16 +186,6 @@ function ms.remove_scanner(name)
             ms.scanners_by_name[name] = nil
             table.remove(ms.scanners, i)
             ms.scanners_changed = true
-        end
-    end
-end
-
-function ms.remove_worker(name)
-    for i = 1, #ms.workers do
-        if ms.workers[i] and ms.workers[i].name == name then
-            ms.workers_by_name[name] = nil
-            table.remove(ms.workers, i)
-            ms.workers_changed = true
         end
     end
 end

@@ -145,7 +145,7 @@ local function process_chunk(chunk)
     for worker_name, _ in pairs(chunk.workers) do
         local worker = workers_by_name[worker_name]
         local labels_added, labels_removed, light_chd, param2_chd =
-            worker.worker_function(pos_min, pos_max, vm_data)
+            worker:run(pos_min, pos_max, vm_data)
         ms.handle_labels(hash, labels_added, labels_removed)
         if light_chd then
             light_changed = true
@@ -164,10 +164,8 @@ local function process_chunk(chunk)
     vm:write_to_map(light_changed)
     vm:update_liquids()
     for worker_name, _ in pairs(chunk.workers) do
-        local afterworker = workers_by_name[worker_name].afterworker
-        if afterworker then
-            afterworker(hash)
-        end
+        local worker = workers_by_name[worker_name]
+        worker:run_afterworker(hash)
     end
 end
 
@@ -226,8 +224,8 @@ local function run_workers(dtime)
     end
     worker_running = true
     if ms.workers_changed then
-        workers = table.copy(ms.workers)
-        workers_by_name = table.copy(ms.workers_by_name)
+        workers = ms.workers
+        workers_by_name = ms.workers_by_name
         ms.workers_changed = false
         work_queue = {}
         minetest.after(longer_break, worker_break)
