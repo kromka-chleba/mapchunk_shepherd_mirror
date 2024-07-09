@@ -16,13 +16,6 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 --]]
 
--- Labels are binary flags stored in 48-bit ints.
--- This means you can register up to 48 labels.
--- Each label is identified by its name or 1-48 number
--- Changing label meaning between releases may break
--- mapchunk record on existing worlds so it is
--- not recommended.
-
 -- Globals
 local ms = mapchunk_shepherd
 ms.labels = {}
