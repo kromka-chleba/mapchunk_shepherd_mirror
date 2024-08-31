@@ -27,7 +27,8 @@ local dimensions = dofile(modpath.."/chunk_dimensions.lua")
 
 local mapchunk_offset = dimensions.mapchunk_offset
 local chunk_side = dimensions.chunk_side
-local old_chunksize = dimensions.old_chunksize
+local mod_storage = minetest.get_mod_storage()
+local old_chunksize = mod_storage:get_int("chunksize")
 local blocks_per_chunk = dimensions.blocks_per_chunk
 
 local function loaded_or_active(pos)

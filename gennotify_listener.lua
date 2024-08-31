@@ -1,6 +1,6 @@
 --[[
     This is a part of "Perfect City".
-    Copyright (C) 2023 Jan Wielkiewicz <tona_kosmicznego_smiecia@interia.pl>
+    Copyright (C) 2024 Jan Wielkiewicz <tona_kosmicznego_smiecia@interia.pl>
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -16,14 +16,17 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 --]]
 
--- By default chunksize is 5
-local blocks_per_chunk = tonumber(minetest.get_mapgen_setting("chunksize"))
-local chunk_side = blocks_per_chunk * 16
--- this logic comes from Minetest source code, see src/mapgen/mapgen.cpp
-local mapchunk_offset = -16 * math.floor(blocks_per_chunk / 2)
+-- Globals
+local ms = mapchunk_shepherd
 
-return {
-    blocks_per_chunk = blocks_per_chunk,
-    chunk_side = chunk_side,
-    mapchunk_offset = mapchunk_offset,
-}
+minetest.set_gen_notify({custom=true}, nil, {"mapchunk_shepherd:labeler"})
+
+minetest.register_on_generated(
+    function(minp, maxp, blockseed)
+		local gennotify = minetest.get_mapgen_object("gennotify")
+		local changed = gennotify.custom["mapchunk_shepherd:labeler"] or {}
+		for _, c in ipairs(changed) do
+            ms.handle_labels(unpack(c))
+		end
+    end
+)

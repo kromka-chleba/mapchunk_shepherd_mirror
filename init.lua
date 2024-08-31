@@ -32,3 +32,6 @@ dofile(modpath.."/labels.lua")
 dofile(modpath.."/chunk_utils.lua")
 dofile(modpath.."/dogs.lua")
 dofile(modpath.."/shepherd.lua")
+dofile(modpath.."/gennotify_listener.lua")
+
+minetest.register_mapgen_script(modpath.."/mapgen_env.lua")
