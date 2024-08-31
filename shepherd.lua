@@ -58,70 +58,11 @@ end
 -- Main loops of the shepherd
 ---------------------------------------------------------------------
 
-local scan_queue = {}
 local work_queue = {}
-
-local scanners = {}
-local scanners_by_name = {}
 
 local longer_break = 2 -- two seconds
 local previous_failure = false
 local small_break = 0.005
-
-local scanner_running = false
-
-local function scanner_break()
-    scanner_running = false
-end
-
-local function run_scanners(dtime)
-    if scanner_running then
-        return
-    end
-    scanner_running = true
-    if ms.scanners_changed then
-        scanners = table.copy(ms.scanners)
-        scanners_by_name = table.copy(ms.scanners_by_name)
-        ms.scanners_changed = false
-        scan_queue = {}
-        minetest.after(longer_break, scanner_break)
-        return
-    end
-    if #scanners == 0 then
-        minetest.after(longer_break, scanner_break)
-        return
-    end
-    local chunk = scan_queue[1]
-    if not chunk then
-        minetest.after(small_break, scanner_break)
-        return
-    end
-    --minetest.log("error", "scan queue: "..#scan_queue)
-    local hash = chunk.hash
-    local failed = ms.contains_labels(hash, {"scanner_failed"})
-    if failed then
-        if previous_failure == hash and math.random() < 0.7 then
-            -- 70% chance to remove recurrent failure
-            table.remove(scan_queue, 1)
-            minetest.after(small_break, scanner_break)
-            return
-        else
-            previous_failure = hash
-        end
-    end
-    local pos_min, pos_max = ms.mapchunk_borders(hash)
-    for scanner_name, _ in pairs(chunk.scanners) do
-        local scanner = scanners_by_name[scanner_name]
-        local labels_added, labels_removed =
-            scanner.scanner_function(pos_min, pos_max)
-        ms.handle_labels(hash, labels_added, labels_removed)
-    end
-    if loaded_or_active(pos1) and not ms.was_scanned(hash) then
-        ms.add_labels(hash, {"scanned"})
-    end
-    table.remove(scan_queue, 1)
-    scanner_running = false
-end
 
 local workers = {}
 local workers_by_name = {}
@@ -249,23 +190,6 @@ local function run_workers(dtime)
     worker_running = false
 end
 
-local function add_to_scan_queue(hash, scanner_name)
-    local exists = false
-    for _, chunk in pairs(scan_queue) do
-        if chunk.hash == hash then
-            chunk.scanners[scanner_name] = true
-            exists = true
-            break
-        end
-    end
-    if not exists then
-        local chunk = {hash = hash,
-                       scanners = {}}
-        chunk.scanners[scanner_name] = true
-        table.insert(scan_queue, chunk)
-    end
-end
-
 local function add_to_work_queue(hash, worker_name)
     local exists = false
     for _, chunk in pairs(work_queue) do
@@ -307,28 +231,6 @@ local function pick_labels(labels, wanted_names)
     return clean
 end
 
-local function good_for_scanner(hash, scanner, labels)
-    local labels = labels or ms.get_labels(hash)
-    local scan_every = scanner.scan_every
-    local has_labels = ms.contains_labels(hash, scanner.needed_labels) and
-        ms.has_one_of(hash, scanner.has_one_of)
-    local timer_labels = pick_labels(labels, scanner.rescan_labels)
-    if has_labels then
-        if scan_every and labels_baked(timer_labels, scan_every) or
-            scan_every and #timer_labels == 0 then
-            return true
-        elseif not ms.was_scanned(hash) then
-            return true
-        elseif ms.contains_labels(hash, {"scanner_failed"}) then
-            if math.random() < 0.2 then
-                -- 20% chance of rescanning on failure
-                return true
-            end
-        end
-    end
-    return false
-end
-
 local function good_for_worker(hash, worker, labels)
     local labels = labels or ms.get_labels(hash)
     local work_every = worker.work_every
@@ -351,16 +253,11 @@ local function good_for_worker(hash, worker, labels)
 end
 
 -- Part of the tracker
-local function save_scan_work(hash)
+local function save_and_work(hash)
     local labels = ms.get_labels(hash)
     if not ms.is_tracked(hash) then
         ms.save_mapchunk(hash)
         return
-    end
-    for _, scanner in pairs(scanners) do
-        if good_for_scanner(hash, scanner, labels) then
-            add_to_scan_queue(hash, scanner.name)
-        end
     end
     for _, worker in pairs(workers) do
         if good_for_worker(hash, worker, labels) then
@@ -370,7 +267,7 @@ local function save_scan_work(hash)
 end
 
 -- Player tracker - responsible for saving mapchunks
--- and adding chunks into scan and work queues.
+-- and adding chunks into the work queue.
 local function player_tracker()
     local players = minetest.get_connected_players()
     for _, player in pairs(players) do
@@ -384,7 +281,7 @@ local function player_tracker()
         for _, neighbor in pairs(neighbors) do
             local pos_min, pos_max = ms.mapchunk_borders(neighbor)
             if loaded_or_active(pos_min) then
-                save_scan_work(neighbor)
+                save_and_work(neighbor)
             end
         end
     end
@@ -415,7 +312,6 @@ if ms.chunksize_changed() then
 else
     -- Start the tracker
     minetest.register_globalstep(player_tracker_loop)
-    minetest.register_globalstep(run_scanners)
     minetest.register_globalstep(run_workers)
 end
 
@@ -424,13 +320,7 @@ minetest.register_chatcommand(
         description = S("Prints status of the Mapchunk Shepherd."),
         privs = {},
         func = function(name, param)
-            local scanner_names = {}
             local worker_names = {}
-            for _, scanner in pairs(scanners) do
-                table.insert(scanner_names, scanner.name)
-            end
-            scanner_names = minetest.serialize(scanner_names)
-            scanner_names = scanner_names:gsub("return ", "")
             for _, worker in pairs(workers) do
                 table.insert(worker_names, worker.name)
             end
@@ -438,18 +328,16 @@ minetest.register_chatcommand(
             worker_names = worker_names:gsub("return ", "")
             local nr_of_chunks = ms.tracked_chunk_counter()
             local tracked_chunks_status = S("Tracked chunks: ")..nr_of_chunks
-            local scan_queue_status = S("Scan queue: ")..#scan_queue
             local work_queue_status = S("Work queue: ")..#work_queue
             local work_time_status = S("Working time: ")..
                 S("Min: ")..math.ceil(min_working_time).." ms | "..
                 S("Max: ")..math.ceil(max_working_time).." ms | "..
                 S("Moving median: ")..get_median_working_time().." ms | "..
                 S("Moving average: ")..get_average_working_time().." ms"
-            local scanner_status = S("Scanners: ")..scanner_names
             local worker_status = S("Workers: ")..worker_names
-            return true, tracked_chunks_status.."\n"..scan_queue_status.."\n"..
-                work_queue_status.."\n"..work_time_status.."\n"..scanner_status..
-                "\n"..worker_status.."\n"
+            return true, tracked_chunks_status.."\n"..
+                work_queue_status.."\n"..work_time_status.."\n"..
+                worker_status.."\n"
         end,
 })
 
