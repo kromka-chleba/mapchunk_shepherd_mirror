@@ -192,8 +192,5 @@ function ms.labels.oldest_elapsed_time(all_labels, needed_names)
     return elapsed
 end
 
-ms.labels.register("chunk_tracked")
-ms.labels.register("scanned")
 ms.labels.register("scanner_failed")
 ms.labels.register("worker_failed")
-ms.labels.register("mapgen_scanned")

@@ -255,10 +255,6 @@ end
 -- Part of the tracker
 local function save_and_work(hash)
     local labels = ms.get_labels(hash)
-    if not ms.is_tracked(hash) then
-        ms.save_mapchunk(hash)
-        return
-    end
     for _, worker in pairs(workers) do
         if good_for_worker(hash, worker, labels) then
             add_to_work_queue(hash, worker.name)

@@ -89,8 +89,6 @@ function worker.new(args)
     w.needed_labels = args.needed_labels or {}
     w.has_one_of = args.has_one_of or {}
     w.rework_labels = args.rework_labels or {}
-    table.insert(w.needed_labels, "chunk_tracked")
-    table.insert(w.needed_labels, "scanned")
     w.work_every = args.work_every
     w.chance = args.chance
     w.catch_up = args.catch_up
@@ -458,9 +456,7 @@ function ms.create_deco_finder(args)
                     local hash = ms.mapchunk_hash(minp)
                     local function check_and_labels(hash)
                         if not ms.contains_labels(hash, labels_to_add) then
-                            ms.save_mapchunk(hash)
                             ms.handle_labels(hash, labels_to_add, labels_to_remove)
-                            ms.add_labels(hash, {"scanned"})
                         end
                     end
                     check_and_labels(hash)

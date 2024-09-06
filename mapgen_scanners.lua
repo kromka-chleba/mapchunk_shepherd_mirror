@@ -39,8 +39,6 @@ end
 function mapgen_watchdog:reset_labels()
     self.added_labels = {}
     self.removed_labels = {}
-    self:push_added_labels("chunk_tracked")
-    self:push_added_labels("scanned")
 end
 
 local function convert_labels(labels)

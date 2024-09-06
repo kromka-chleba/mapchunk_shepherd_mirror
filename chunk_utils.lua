@@ -84,12 +84,6 @@ function ms.chunksize_changed()
     end
 end
 
-function ms.is_tracked(hash)
-    local value = mod_storage:get_string(hash)
-    local labels = ms.labels.decode(value)
-    return labels
-end
-
 function ms.get_labels(hash)
     local encoded = mod_storage:get_string(hash)
     if encoded == "" then
@@ -137,53 +131,10 @@ function ms.tracked_chunk_counter()
     return mod_storage:get_int("counter")
 end
 
-function ms.save_mapchunk(hash, force)
-    if not ms.is_tracked(hash) then
-        ms.add_labels(hash, {"chunk_tracked"})
-        bump_counter()
-        ms.save_time(hash)
-    end
-    if force then
-        local label = ms.labels.add_timestamp({"chunk_tracked"})
-        mod_storage:set_string(hash, ms.labels.encode(label))
-        ms.save_time(hash)
-    end
-end
-
--- Clears labels other than "chunk_tracked"
-function ms.reset_mapchunk(hash)
-    if is_tracked(hash) then
-        local label = ms.labels.add_timestamp({"chunk_tracked"})
-        mod_storage:set_string(hash, ms.labels.encode(label))
-        ms.reset_time(hash)
-    end
-end
-
--- Removes the hash from history
-function ms.remove_mapchunk(hash)
-    if ms.is_tracked(hash) then
-        debump_counter()
-    end
-    mod_storage:set_string(hash, "")
-    ms.reset_time(hash)
-end
-
-function ms.was_scanned(hash)
-    local labels = ms.get_labels(hash)
-    local label_names = ms.labels.extract_names(labels)
-    return ms.labels.contains(label_names, {"scanned"})
-end
-
 function ms.remove_labels(hash, removed_labels)
     -- copy to avoid modifying the table somewhere far far away
     local removed_labels = table.copy(removed_labels)
     local old_labels = ms.get_labels(hash)
-    if not ms.is_tracked(hash) then
-        minetest.log("error", "Mapchunk shepherd: "..hash.." is not tracked!")
-        minetest.log("error", "Mapchunk shepherd: tried to remove labels: "..dump(removed_labels))
-        ms.save_mapchunk(hash, true)
-        return
-    end
     if ms.labels.is_valid(removed_labels) then
         local labels = ms.labels.remove(old_labels, removed_labels)
         mod_storage:set_string(hash, ms.labels.encode(labels))
@@ -218,8 +169,6 @@ function ms.labels_to_position(pos, labels_to_add, labels_to_remove)
     local labels_to_add = labels_to_add or {}
     local labels_to_remove = labels_to_remove or {}
     if not ms.contains_labels(hash, labels_to_add) then
-        ms.save_mapchunk(hash)
         ms.handle_labels(hash, labels_to_add, labels_to_remove)
-        ms.add_labels(hash, {"scanned"})
     end
 end
