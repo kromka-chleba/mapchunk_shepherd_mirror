@@ -24,4 +24,5 @@ local mod_path = minetest.get_modpath(mod_name)
 
 dofile(mod_path.."/labels.lua")
 dofile(mod_path.."/chunk_utils_env.lua")
+dofile(mod_path.."/label_store.lua")
 dofile(mod_path.."/mapgen_scanners.lua")

@@ -21,24 +21,23 @@ local ms = mapchunk_shepherd
 
 ms.mapgen_watchdog = {}
 local mapgen_watchdog = ms.mapgen_watchdog
-mapgen_watchdog.__index = mapgen_watchdog
+
+-- Inherit methods from the 'ms.label_store' class.
+function mapgen_watchdog.__index(object, key)
+    if mapgen_watchdog[key] then
+        return mapgen_watchdog[key]
+    elseif ms.label_store[key] then
+        return ms.label_store[key]
+    end
+end
 
 local private = setmetatable({}, {__mode = "k"})
 
 function mapgen_watchdog.new(hash)
-    local w = setmetatable({}, mapgen_watchdog)
-    w.hash = hash
+    local w = ms.label_store.new(hash)
     w.scanners = {}
-    w.added_labels = {}
-    w.removed_labels = {}
-    w:reset_labels()
     private[w] = {}
-    return w
-end
-
-function mapgen_watchdog:reset_labels()
-    self.added_labels = {}
-    self.removed_labels = {}
+    return setmetatable(w, mapgen_watchdog)
 end
 
 local function convert_labels(labels)
@@ -63,48 +62,6 @@ function mapgen_watchdog:save_gen_notify()
     minetest.save_gen_notify("mapchunk_shepherd:labeler", obj)
 end
 
--- Allows functions to accept both normal tables and multiple unpacked arguments.
-local function validate_input(...)
-    local args = {...}
-    if type(args[1]) == "table" then
-        return args[1]
-    end
-    return args
-end
-
-function mapgen_watchdog:push_added_labels(...)
-    local labels = validate_input(...)
-    for _, label in ipairs(labels) do
-        self.added_labels[label] = true
-    end
-end
-
-function mapgen_watchdog:push_removed_labels(...)
-    local labels = validate_input(...)
-    for _, label in ipairs(labels) do
-        self.removed_labels[label] = true
-    end
-end
-
-function mapgen_watchdog:pop_added_labels(...)
-    local labels = validate_input(...)
-    for _, label in ipairs(labels) do
-        self.added_labels[label] = nil
-    end
-end
-
-function mapgen_watchdog:pop_removed_labels(...)
-    local labels = validate_input(...)
-    for _, label in ipairs(labels) do
-        self.removed_labels[label] = nil
-    end
-end
-
-function mapgen_watchdog:set_hash(hash)
-    self.hash = hash
-    self:reset_labels()
-end
-
 -- Adds multiple scanner functions given by '...' into the mapgen
 -- watchdog instance.  Each scanner function has to be a function that
 -- takes two arguments - 'hash' that is the mapchunk hash and
@@ -114,7 +71,7 @@ end
 -- respectively labels that should be added to the mapchunk and labels
 -- that should be removed from it.
 function mapgen_watchdog:add_scanners(...)
-    local scanners = validate_input(...)
+    local scanners = ms.unpack_args(...)
     for _, func in ipairs(scanners) do
         if not private[self][func] then
             -- make sure only unique scanners get registered
