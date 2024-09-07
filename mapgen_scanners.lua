@@ -51,6 +51,9 @@ end
 function mapgen_watchdog:save_gen_notify()
     local added_labels = convert_labels(self.added_labels)
     local removed_labels = convert_labels(self.removed_labels)
+    if #added_labels <= 0 and #removed_labels <= 0 then
+        return
+    end
     local gennotify = minetest.get_mapgen_object("gennotify")
     local obj = gennotify.custom["mapchunk_shepherd:labeler"] or {}
     local change = {

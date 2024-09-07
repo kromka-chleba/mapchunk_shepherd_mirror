@@ -19,22 +19,32 @@
 -- Globals
 local ms = mapchunk_shepherd
 
-minetest.set_gen_notify({custom=true}, nil, {"mapchunk_shepherd:labeler"})
+ms.tag = {}
+local tag = ms.tag
 
-minetest.register_on_generated(
-    function(minp, maxp, blockseed)
-        local label_stores = {}
-		local gennotify = minetest.get_mapgen_object("gennotify")
-		local changed = gennotify.custom["mapchunk_shepherd:labeler"] or {}
-		for _, c in ipairs(changed) do
-            local hash, added_labels, removed_labels = unpack(c)
-            local ls = label_stores[hash] or ms.label_store.new(hash)
-            label_stores[hash] = ls
-            ls:push_added_labels(added_labels)
-            ls:push_removed_labels(removed_labels)
-		end
-        for _, ls in pairs(label_stores) do
-            ls:save_to_disk()
-        end
+local registered_tags = {}
+
+-- Registers a new tag
+function tag.register(name)
+    assert(type(name) == "string",
+           "Tag 'name' should be string but is "..type(name).." instead.")
+    assert(not registered_tags[name],
+           "Mapchunk shepherd: Tag with name \""..name.."\" already exists!")
+    registered_tags[name] = true
+end
+
+-- Checks if the tag is registered, returns a boolean.
+function tag.check(name)
+    return registered_tags[name]
+end
+
+-- Returns a list of names of registered tags.
+function tag.get_registered()
+    local registered = {}
+    for name, _ in pairs(registered_tags) do
+        table.insert(registered, name)
     end
-)
+    return registered
+end
+
+tag.register("worker_failed")

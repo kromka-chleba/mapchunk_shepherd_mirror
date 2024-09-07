@@ -1,6 +1,6 @@
 --[[
     This is a part of "Perfect City".
-    Copyright (C) 2023 Jan Wielkiewicz <tona_kosmicznego_smiecia@interia.pl>
+    Copyright (C) 2024 Jan Wielkiewicz <tona_kosmicznego_smiecia@interia.pl>
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -15,10 +15,6 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 --]]
-
--- Mapchunk Shepherd
--- License: GNU GPLv3
--- Copyright © Jan Wielkiewicz 2023
 
 -- Globals
 local ms = mapchunk_shepherd
@@ -84,34 +80,6 @@ function ms.chunksize_changed()
     end
 end
 
-function ms.get_labels(hash)
-    local encoded = mod_storage:get_string(hash)
-    if encoded == "" then
-        return {}
-    end
-    local value = minetest.deserialize(encoded)
-    if value then
-        return value
-    else
-        minetest.log("error", "Get_labels failed for hash: "..
-                     dump(hash).." / "..dump(encoded))
-        return {}
-    end
-end
-
-function ms.add_labels(hash, new_labels)
-    -- new_labels - label names without timestamps
-    local new_labels = table.copy(new_labels)
-    local old_labels = ms.get_labels(hash)
-    local to_add = {}
-    if ms.labels.is_valid(new_labels) then
-        new_labels = ms.labels.add_timestamp(new_labels)
-        to_add = ms.labels.delete_duplicates(old_labels, new_labels)
-        mod_storage:set_string(hash, ms.labels.encode(to_add))
-        ms.save_time(hash)
-    end
-end
-
 local function bump_counter()
     local counter = mod_storage:get_int("counter")
     counter = counter + 1
@@ -131,44 +99,10 @@ function ms.tracked_chunk_counter()
     return mod_storage:get_int("counter")
 end
 
-function ms.remove_labels(hash, removed_labels)
-    -- copy to avoid modifying the table somewhere far far away
-    local removed_labels = table.copy(removed_labels)
-    local old_labels = ms.get_labels(hash)
-    if ms.labels.is_valid(removed_labels) then
-        local labels = ms.labels.remove(old_labels, removed_labels)
-        mod_storage:set_string(hash, ms.labels.encode(labels))
-    end
-end
-
-function ms.handle_labels(hash, labels_added, labels_removed)
-    if labels_added then
-        local labels_added = table.copy(labels_added)
-        ms.add_labels(hash, labels_added)
-    end
-    if labels_removed then
-        local labels_removed = table.copy(labels_removed)
-        ms.remove_labels(hash, labels_removed)
-    end
-end
-
-function ms.contains_labels(hash, labels)
-    local chunk_labels = ms.get_labels(hash)
-    local label_names = ms.labels.extract_names(chunk_labels)
-    return ms.labels.contains(label_names, labels)
-end
-
-function ms.has_one_of(hash, labels)
-    local chunk_labels = ms.get_labels(hash)
-    local label_names = ms.labels.extract_names(chunk_labels)
-    return ms.labels.has_one_of(label_names, labels)
-end
-
 function ms.labels_to_position(pos, labels_to_add, labels_to_remove)
     local hash = ms.mapchunk_hash(pos)
-    local labels_to_add = labels_to_add or {}
-    local labels_to_remove = labels_to_remove or {}
-    if not ms.contains_labels(hash, labels_to_add) then
-        ms.handle_labels(hash, labels_to_add, labels_to_remove)
-    end
+    local ls = ms.label_store.new(hash)
+    ls:add_labels(labels_to_add)
+    ls:remove_labels(labels_to_remove)
+    ls:save_to_disk()
 end

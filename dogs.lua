@@ -452,33 +452,35 @@ function ms.create_deco_finder(args)
             function(minp, maxp, blockseed)
                 local gennotify = minetest.get_mapgen_object("gennotify")
                 local pos_list = gennotify["decoration#"..id] or {}
-                if #pos_list > 0 then
-                    local hash = ms.mapchunk_hash(minp)
-                    local function check_and_labels(hash)
-                        if not ms.contains_labels(hash, labels_to_add) then
-                            ms.handle_labels(hash, labels_to_add, labels_to_remove)
-                        end
+                if #pos_list <= 0 then
+                    return
+                end
+                local hash = ms.mapchunk_hash(minp)
+                if not corners then
+                    local ls = ms.label_store.new(hash)
+                    ls:push_added_labels(labels_to_add)
+                    ls:push_removed_labels(labels_to_remove)
+                    ls:save_to_disk()
+                    return
+                end
+                local label_stores = {}
+                for _, pos in pairs(pos_list) do
+                    for _, corner in pairs(corners) do
+                        --add a 5% margin for schematic just in case
+                        local wide = vector.multiply(corner, 1.05)
+                        wide = vector.add(wide, 1)
+                        wide = vector.floor(wide)
+                        wide = vector.subtract(wide, 1)
+                        local corner_pos = vector.add(pos, wide)
+                        local corner_hash = ms.mapchunk_hash(corner_pos)
+                        local ls = label_stores[corner_hash] or ms.label_store.new(corner_hash)
+                        label_stores[corner_hash] = ls
+                        ls:push_added_labels(labels_to_add)
+                        ls:push_removed_labels(labels_to_remove)
                     end
-                    check_and_labels(hash)
-                    if not corners then
-                        -- exit if it's not a schematic
-                        return
-                    end
-                    for _, pos in pairs(pos_list) do
-                        local previous_hash = ""
-                        for _, corner in pairs(corners) do
-                            --add a 5% margin for schematic just in case
-                            local wide = vector.multiply(corner, 1.05)
-                            wide = vector.add(wide, 1)
-                            wide = vector.floor(wide)
-                            wide = vector.subtract(wide, 1)
-                            local corner_pos = vector.add(pos, wide)
-                            local corner_hash = ms.mapchunk_hash(corner_pos)
-                            if previous_hash ~= corner_hash then
-                                check_and_labels(corner_hash)
-                            end
-                        end
-                    end
+                end
+                for _, ls in pairs(label_stores) do
+                    ls:save_to_disk()
                 end
             end
         )

@@ -84,11 +84,13 @@ local function process_chunk(chunk)
     }
     local light_changed = false
     local param2_changed = false
+    local ls = ms.label_store.new(hash)
     for worker_name, _ in pairs(chunk.workers) do
         local worker = workers_by_name[worker_name]
-        local labels_added, labels_removed, light_chd, param2_chd =
+        local added_labels, removed_labels, light_chd, param2_chd =
             worker:run(pos_min, pos_max, vm_data)
-        ms.handle_labels(hash, labels_added, labels_removed)
+        ls:push_added_labels(added_labels)
+        ls:push_removed_labels(removed_labels)
         if light_chd then
             light_changed = true
         end
@@ -96,6 +98,7 @@ local function process_chunk(chunk)
             param2_changed = true
         end
     end
+    ls:save_to_disk()
     vm:set_data(vm_data.nodes)
     if light_changed then
         vm:set_light_data(vm_data.light)
@@ -207,56 +210,37 @@ local function add_to_work_queue(hash, worker_name)
     end
 end
 
--- returns true if at least one label has its elapsed time
--- greater than time
 local function labels_baked(labels, time)
     for _, label in pairs(labels) do
-        if ms.labels.time_elapsed(label) > time then
+        if label:elapsed_time() > time then
             return true
         end
     end
     return false
 end
 
-local function pick_labels(labels, wanted_names)
-    local clean = {}
-    for _, label in pairs(labels) do
-        for _, name in pairs(wanted_names) do
-            if label[1] == name then
-                table.insert(clean, label)
-                break
-            end
-        end
-    end
-    return clean
-end
-
-local function good_for_worker(hash, worker, labels)
-    local labels = labels or ms.get_labels(hash)
+local function good_for_worker(hash, worker)
     local work_every = worker.work_every
-    local has_labels = ms.contains_labels(hash, worker.needed_labels) and
-        ms.has_one_of(hash, worker.has_one_of)
-    if has_labels or
-        has_labels and ms.contains_labels(hash, {"worker_failed"})
-    then
-        if work_every then
-            local timer_labels = pick_labels(labels, worker.rework_labels)
-            if #timer_labels == 0 then
-                return true
-            end
-            return labels_baked(timer_labels, work_every)
-        else
+    local ls = ms.label_store.new(hash)
+    if not (ls:contains_labels(worker.needed_labels) and
+            ls:has_one_of(worker.has_one_of)) then
+        return false
+    end
+    if work_every then
+        local timer_labels = ls:filter_labels(worker.rework_labels)
+        if not timer_labels then
+            -- Bootstrap first run for workers with circular dependencies
             return true
         end
+        return labels_baked(timer_labels, work_every)
     end
-    return false
+    return true
 end
 
 -- Part of the tracker
 local function save_and_work(hash)
-    local labels = ms.get_labels(hash)
     for _, worker in pairs(workers) do
-        if good_for_worker(hash, worker, labels) then
+        if good_for_worker(hash, worker) then
             add_to_work_queue(hash, worker.name)
         end
     end
@@ -273,7 +257,6 @@ local function player_tracker()
         end
         local hash = ms.mapchunk_hash(pos)
         local neighbors = neighboring_mapchunks(hash)
-        --minetest.log("error", dump(ms.get_labels(hash)))
         for _, neighbor in pairs(neighbors) do
             local pos_min, pos_max = ms.mapchunk_borders(neighbor)
             if loaded_or_active(pos_min) then
@@ -345,15 +328,15 @@ minetest.register_chatcommand(
             local player = minetest.get_player_by_name(name)
             local pos = player:get_pos()
             local hash = ms.mapchunk_hash(pos)
-            local labels = ms.get_labels(hash)
+            local ls = ms.label_store.new(hash)
+            local labels = ls:get_labels()
             local last_changed = ms.time_since_last_change(hash)
-            labels = minetest.serialize(labels)
-            labels = labels:gsub("return ", "")
-            labels = labels:gsub("{{", "{")
-            labels = labels:gsub("}}", "}")
-            labels = labels:gsub(",", ", ")
+            local label_string = ""
+            for _, label in pairs(labels) do
+                label_string = label_string..label:description()..", "
+            end
             return true, S("hash: ")..hash.."\n"
                 ..S("last changed: ")..last_changed..S(" seconds ago").."\n"
-                ..S("labels: ")..labels.."\n "
+                ..S("labels: ")..label_string.."\n "
         end,
 })
