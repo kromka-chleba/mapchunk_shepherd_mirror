@@ -458,8 +458,8 @@ function ms.create_deco_finder(args)
                 local hash = ms.mapchunk_hash(minp)
                 if not corners then
                     local ls = ms.label_store.new(hash)
-                    ls:push_added_labels(labels_to_add)
-                    ls:push_removed_labels(labels_to_remove)
+                    ls:mark_for_addition(labels_to_add)
+                    ls:mark_for_removal(labels_to_remove)
                     ls:save_to_disk()
                     return
                 end
@@ -475,8 +475,8 @@ function ms.create_deco_finder(args)
                         local corner_hash = ms.mapchunk_hash(corner_pos)
                         local ls = label_stores[corner_hash] or ms.label_store.new(corner_hash)
                         label_stores[corner_hash] = ls
-                        ls:push_added_labels(labels_to_add)
-                        ls:push_removed_labels(labels_to_remove)
+                        ls:mark_for_addition(labels_to_add)
+                        ls:mark_for_removal(labels_to_remove)
                     end
                 end
                 for _, ls in pairs(label_stores) do

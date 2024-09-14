@@ -19,12 +19,24 @@
 -- Globals
 local ms = mapchunk_shepherd
 
+--[[
+    Tags are strings that get assigned to mapchunks. Tags together
+    with other kinds of metatata are called labels (see
+    labels.lua). An example of a tag would be a string "has_trees"
+    which could be assigned to mapchunks where trees were
+    generated. In order to use tags in labels in the shepherd, they
+    need to be registered using 'mapchunk_shepherd.tag.register'. Tags
+    need to be registered both in the ordinary environment and in
+    mapgen env (in a file that was marked as a mapgen script with
+    'minetest.register_mapgen_script'.
+--]]
+
 ms.tag = {}
 local tag = ms.tag
 
 local registered_tags = {}
 
--- Registers a new tag
+-- Registers a new tag, 'name' is the unique name of the tag.
 function tag.register(name)
     assert(type(name) == "string",
            "Tag 'name' should be string but is "..type(name).." instead.")
@@ -33,7 +45,8 @@ function tag.register(name)
     registered_tags[name] = true
 end
 
--- Checks if the tag is registered, returns a boolean.
+-- Checks if the tag is registered, returns a boolean. 'name' is the
+-- unique name of the tag.
 function tag.check(name)
     return registered_tags[name]
 end
@@ -47,4 +60,5 @@ function tag.get_registered()
     return registered
 end
 
+-- A tag that is assigned to a mapchunk for which a worker failed.
 tag.register("worker_failed")

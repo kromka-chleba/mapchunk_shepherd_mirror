@@ -89,8 +89,8 @@ local function process_chunk(chunk)
         local worker = workers_by_name[worker_name]
         local added_labels, removed_labels, light_chd, param2_chd =
             worker:run(pos_min, pos_max, vm_data)
-        ls:push_added_labels(added_labels)
-        ls:push_removed_labels(removed_labels)
+        ls:mark_for_addition(added_labels)
+        ls:mark_for_removal(removed_labels)
         if light_chd then
             light_changed = true
         end

@@ -19,6 +19,20 @@
 -- Globals
 local ms = mapchunk_shepherd
 
+--[[
+    Label store is a class of objects that serve as a buffer for
+    labels (see labels.lua) for a given mapchunk. Label store provides
+    two buffers for labels - self.staged_labels and self.labels.  The
+    first one keeps labels that were marked for addition or removal in
+    the label store, the second keeps the state of the
+    mapchunk. Labels can be moved from self.staged_labels to
+    self.labels by using self:set_labels().  Labels from
+    self.staged_labels can be sent from mapgen env to normal env using
+    gennotify. Labels from self.labels can be saved to mod storage in
+    the ordinary env. By default creating a new label store will get
+    labels from mod storage (if available).
+--]]
+
 ms.label_store = {}
 local label_store = ms.label_store
 label_store.__index = label_store
@@ -32,116 +46,140 @@ if not mapgen_env then
     mod_storage = minetest.get_mod_storage()
 end
 
+-- Creates a new label_store object. 'hash' is a mapchunk hash created
+-- using the 'ms.mapchunk_hash' function. Initializes the object with
+-- labels saved in mod storage (if available).
+-- Returns the label store object.
 function label_store.new(hash)
     local ls = setmetatable({}, label_store)
     ls.hash = hash
-    ls.labels = {}
-    ls.added_labels = {}
-    ls.removed_labels = {}
-    ls:read_from_disk()
+    ls.staged_labels = {} -- stores label state, keyed by tag
+    ls.labels = {} -- stores label objects, keyed by tag
+    if not mapgen_env then
+        ls:read_from_disk()
+    end
     return ls
 end
 
+-- Clears both label buffers
 function label_store:reset_labels()
-    self.added_labels = {}
-    self.removed_labels = {}
+    self.staged_labels = {}
     self.labels = {}
 end
 
+-- Sets the hash of the label store to 'hash' which is a mapchunk hash
+-- created using the 'ms.mapchunk_hash' function. Resets labels in
+-- both buffers and reads labels from mod storage for the mapchunk.
 function label_store:set_hash(hash)
     self.hash = hash
     self:reset_labels()
+    if not mapgen_env then
+        ls:read_from_disk()
+    end
 end
 
-function label_store:push_added_labels(...)
+local lab_state = {
+    add = "add",
+    remove = "remove",
+}
+
+-- Marks labels for addition in the self.staged_labels buffer. This
+-- means labels were prepared to be added, but need to be set using
+-- 'label_store:set_labels' in order to prepare them for writing to
+-- mod storage. '...' is a list of tags (either a table or
+-- an unpacked table).
+function label_store:mark_for_addition(...)
     local tags = ms.unpack_args(...)
     for _, tag in ipairs(tags) do
-        self.added_labels[tag] = true
+        if self.staged_labels[tag] == lab_state.remove then
+            self.staged_labels[tag] = nil
+        else
+            self.staged_labels[tag] = lab_state.add
+        end
     end
 end
 
-function label_store:push_removed_labels(...)
+-- Marks labels for removal in the self.staged_labels buffer. This
+-- means labels were prepared to be removed, but need to be set using
+-- 'label_store:set_labels' in order to prepare them for removal from
+-- mod storage. '...' is a list of tags (either a table or
+-- an unpacked table).
+function label_store:mark_for_removal(...)
     local tags = ms.unpack_args(...)
     for _, tag in ipairs(tags) do
-        self.removed_labels[tag] = true
+        if self.staged_labels[tag] == lab_state.add then
+            self.staged_labels[tag] = nil
+        else
+            self.staged_labels[tag] = lab_state.remove
+        end
     end
-end
-
-function label_store:unpush_added_labels(...)
-    local tags = ms.unpack_args(...)
-    for _, tag in ipairs(tags) do
-        self.added_labels[tag] = nil
-    end
-end
-
-function label_store:unpush_removed_labels(...)
-    local tags = ms.unpack_args(...)
-    for _, tag in ipairs(tags) do
-        self.removed_labels[tag] = nil
-    end
-end
-
-function label_store:set_added()
-    for name, _ in pairs(self.added_labels) do
-        self.labels[name] = ms.label.new(name)
-    end
-    self.added_labels = {}
-end
-
-function label_store:set_removed()
-    for name, _ in pairs(self.removed_labels) do
-        self.labels[name] = nil
-    end
-    self.removed_labels = {}
 end
 
 -- Saves labels marked for addition and removal in 'self.labels' which
 -- is the label buffer that can eventually get written into mod storage.
 function label_store:set_labels()
-    self:set_added()
-    self:set_removed()
+    for tag, state in pairs(self.staged_labels) do
+        if state == lab_state.add then
+            self.labels[tag] = ms.label.new(tag)
+        elseif state == lab_state.remove then
+            self.labels[tag] = nil
+        end
+        self.staged_labels[tag] = nil
+    end
 end
 
+-- Checks if a method with name 'method_name' was used in the mapgen
+-- env, asserts if so.
+local function check_mapgen_env(method_name)
+    assert(not mapgen_env,
+           string.format(
+               "Mapchunk Shepherd: label_store: "..
+               "trying to call the '%s' method from the mapgen env.",
+               method_name))
+end
+
+-- Marks labels for addition in the 'self.labels' buffer. This means
+-- they will be added to mod storage if 'label_store:save_to_disk' is
+-- ran for the label store. '...' is a list of tags (either a table or
+-- an unpacked table).
 function label_store:add_labels(...)
-    if mapgen_env then
-        return
-    end
-    self:push_added_labels(...)
-    self:set_added()
+    check_mapgen_env("add_labels")
+    self:mark_for_addition(...)
+    self:set_labels()
 end
 
+-- Marks labels for removal in the 'self.labels' buffer. This means
+-- they will be removed from mod storage if 'label_store:save_to_disk'
+-- is ran for the label store. '...' is a list of tags (either a table or
+-- an unpacked table).
 function label_store:remove_labels(...)
-    if mapgen_env then
-        return
-    end
-    self:push_removed_labels(...)
-    self:set_removed()
+    check_mapgen_env("remove_labels")
+    self:mark_for_removal(...)
+    self:set_labels()
 end
 
--- Imports labels mod storage for the mapchunk.
+-- Imports labels mod storage for the mapchunk, saves them in 'self.labels'
 function label_store:read_from_disk()
-    if mapgen_env then
-        return
-    end
+    check_mapgen_env("read_from_disk")
     local encoded = mod_storage:get_string(self.hash)
-    local raw_labels = ms.label.decode(encoded)
-    for _, raw in ipairs(raw_labels) do
-        local label = ms.label.from_raw(raw)
+    local labels = ms.label.decode(encoded)
+    for _, label in ipairs(labels) do
         self.labels[label.name] = label
     end
 end
 
 -- Saves labels from 'self.labels' to mod storage for the mapchunk
--- with hash 'self.hash'.
+-- tracked by the label store.
 function label_store:save_to_disk()
-    if mapgen_env then
-        return
-    end
+    check_mapgen_env("save_to_disk")
     self:set_labels()
     local encoded = ms.label.encode(self.labels)
     mod_storage:set_string(self.hash, encoded)
 end
 
+-- Checks if the label store contains labels given by '...', which is
+-- a list of tags (either a table or an unpacked table). It checks
+-- only in 'self.labels'. Returns a boolean.
 function label_store:contains_labels(...)
     local tags = ms.unpack_args(...)
     for _, tag in ipairs(tags) do
@@ -152,6 +190,9 @@ function label_store:contains_labels(...)
     return true
 end
 
+-- Checks if the label store contains at least one of the labels given
+-- by '...', which is a list of tags (either a table or an unpacked
+-- table). It checks only in 'self.labels'. Returns a boolean.
 function label_store:has_one_of(...)
     local tags = ms.unpack_args(...)
     if not next(tags) then
@@ -165,6 +206,8 @@ function label_store:has_one_of(...)
     return false
 end
 
+-- Gets all labels stored in 'self.labels' of the label store. Returns
+-- an ordered list (array) of label objects (see labels.lua).
 function label_store:get_labels()
     local labels = {}
     for _, label in pairs(self.labels) do
@@ -185,6 +228,9 @@ function label_store:filter_labels(...)
     return next(labels) and labels
 end
 
+-- Returns the label object from 'self.labels' with the oldest
+-- timestamp. '...', is a list of tags (either a table or an unpacked
+-- table), if given, it will pick the oldest labels with these tags.
 function label_store:oldest_label(...)
     local labels = self:filter_labels(...) or self:get_labels()
     local oldest = labels[1]
@@ -194,4 +240,34 @@ function label_store:oldest_label(...)
         end
     end
     return oldest
+end
+
+-- Checks if a method with name 'method_name' was used not in the
+-- mapgen env, if so asserts.
+local function check_env(method_name)
+    assert(mapgen_env,
+           string.format(
+               "Mapchunk Shepherd: label_store: "..
+               "trying to call the '%s' method from normal env.\n"..
+               "This method can be only called fron mapgen env.",
+               method_name))
+end
+
+-- Saves staged labels into the shepherd's gennotify labeler object
+-- "mapchunk_shepherd:labeler". This means labels that were marked as
+-- added/removed will be sent as a gennotify to the ordinary env and
+-- will get added/removed to/from mod storage.
+function label_store:save_gen_notify()
+    check_env("save_gen_notify")
+    if not next(self.staged_labels) then
+        return
+    end
+    local gennotify = minetest.get_mapgen_object("gennotify")
+    local obj = gennotify.custom["mapchunk_shepherd:labeler"] or {}
+    local change = {
+        self.hash,
+        self.staged_labels,
+    }
+    table.insert(obj, change)
+    minetest.save_gen_notify("mapchunk_shepherd:labeler", obj)
 end

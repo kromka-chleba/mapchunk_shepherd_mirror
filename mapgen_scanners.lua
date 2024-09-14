@@ -40,31 +40,6 @@ function mapgen_watchdog.new(hash)
     return setmetatable(w, mapgen_watchdog)
 end
 
-local function convert_labels(labels)
-    local converted = {}
-    for k, v in pairs(labels) do
-        table.insert(converted, k)
-    end
-    return converted
-end
-
-function mapgen_watchdog:save_gen_notify()
-    local added_labels = convert_labels(self.added_labels)
-    local removed_labels = convert_labels(self.removed_labels)
-    if #added_labels <= 0 and #removed_labels <= 0 then
-        return
-    end
-    local gennotify = minetest.get_mapgen_object("gennotify")
-    local obj = gennotify.custom["mapchunk_shepherd:labeler"] or {}
-    local change = {
-        self.hash,
-        added_labels,
-        removed_labels,
-    }
-    table.insert(obj, change)
-    minetest.save_gen_notify("mapchunk_shepherd:labeler", obj)
-end
-
 -- Adds multiple scanner functions given by '...' into the mapgen
 -- watchdog instance.  Each scanner function has to be a function that
 -- takes two arguments - 'hash' that is the mapchunk hash and
@@ -87,8 +62,8 @@ end
 function mapgen_watchdog:run_scanners(mapgen_args)
     for _, scanner in ipairs(self.scanners) do
         local added_labels, removed_labels = scanner(self.hash, mapgen_args)
-        self:push_added_labels(added_labels)
-        self:push_removed_labels(removed_labels)
+        self:mark_for_addition(added_labels)
+        self:mark_for_removal(removed_labels)
     end
 end
 

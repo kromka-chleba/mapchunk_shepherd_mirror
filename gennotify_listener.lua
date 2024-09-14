@@ -27,11 +27,11 @@ minetest.register_on_generated(
 		local gennotify = minetest.get_mapgen_object("gennotify")
 		local changed = gennotify.custom["mapchunk_shepherd:labeler"] or {}
 		for _, c in ipairs(changed) do
-            local hash, added_labels, removed_labels = unpack(c)
+            local hash, staged_labels = unpack(c)
             local ls = label_stores[hash] or ms.label_store.new(hash)
             label_stores[hash] = ls
-            ls:push_added_labels(added_labels)
-            ls:push_removed_labels(removed_labels)
+            ls.staged_labels = staged_labels
+            ls:set_labels()
 		end
         for _, ls in pairs(label_stores) do
             ls:save_to_disk()
