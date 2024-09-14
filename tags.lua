@@ -1,5 +1,5 @@
 --[[
-    This is a part of "Perfect City".
+    This is a part of "Mapchunk Shepherd".
     Copyright (C) 2024 Jan Wielkiewicz <tona_kosmicznego_smiecia@interia.pl>
 
     This program is free software: you can redistribute it and/or modify

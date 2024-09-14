@@ -1,6 +1,6 @@
 --[[
-    This is a part of "Perfect City".
-    Copyright (C) 2023 Jan Wielkiewicz <tona_kosmicznego_smiecia@interia.pl>
+    This is a part of "Mapchunk Shepherd".
+    Copyright (C) 2023-2024 Jan Wielkiewicz <tona_kosmicznego_smiecia@interia.pl>
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
