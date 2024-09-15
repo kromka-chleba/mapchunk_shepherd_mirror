@@ -72,16 +72,20 @@ local function worker_break()
     worker_running = false
 end
 
+local vm_data = {
+    nodes = {},
+    param2 = {},
+    light = {},
+}
+
 local function process_chunk(chunk)
     local hash = chunk.hash
     local pos_min, pos_max = ms.mapchunk_borders(hash)
     local vm = VoxelManip()
     vm:read_from_map(pos_min, pos_max)
-    local vm_data = {
-        nodes = vm:get_data(),
-        param2 = vm:get_param2_data(),
-        light = vm:get_light_data(),
-    }
+    vm:get_data(vm_data.nodes)
+    vm:get_param2_data(vm_data.param2)
+    vm:get_light_data(vm_data.light)
     local light_changed = false
     local param2_changed = false
     local ls = ms.label_store.new(hash)
