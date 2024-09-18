@@ -19,74 +19,107 @@
 -- Globals
 local ms = mapchunk_shepherd
 
-local mod_storage = minetest.get_mod_storage()
-local modpath = minetest.get_modpath('mapchunk_shepherd')
-local dimensions = dofile(modpath.."/chunk_dimensions.lua")
+local mod_path = minetest.get_modpath('mapchunk_shepherd')
+local sizes = dofile(mod_path.."/sizes.lua")
 
-local mapchunk_offset = dimensions.mapchunk_offset
-local chunk_side = dimensions.chunk_side
-local old_chunksize = mod_storage:get_int("chunksize")
-local blocks_per_chunk = dimensions.blocks_per_chunk
+-- We're in mapgen env when 'minetest.save_gen_notify' is a function.
+-- In the ordinary env 'minetest.save_gen_notify' is nil.
+local mapgen_env = minetest.save_gen_notify
+local mod_storage
 
-function ms.chunk_side()
-    return chunk_side
+if not mapgen_env then
+    mod_storage = minetest.get_mod_storage()
 end
 
--- Converts node coordinates to mapchunk coordinates
-function ms.node_pos_to_mapchunk_pos(pos)
-    pos = vector.subtract(pos, mapchunk_offset)
-    pos = vector.divide(pos, chunk_side)
-    pos = vector.floor(pos)
-    return pos
+-- Checks if a function with name 'function_name' was used in the mapgen
+-- env, asserts if so.
+local function check_mapgen_env(function_name)
+    assert(not mapgen_env,
+           string.format(
+               "Mapchunk Shepherd: chunk_utils: "..
+               "trying to call the '%s' function from the mapgen env.",
+               function_name))
+end
+
+function ms.chunk_side()
+    return sizes.mapchunk.in_nodes
 end
 
 -- A global function to get hash from pos
 function ms.mapchunk_hash(pos)
-    pos = ms.node_pos_to_mapchunk_pos(pos)
-    pos = vector.multiply(pos, chunk_side)
-    pos = vector.add(pos, mapchunk_offset)
-    return minetest.hash_node_position(pos)
+    local origin = ms.units.mapchunk_origin(pos)
+    return minetest.hash_node_position(origin)
+end
+
+-- A global function to get mapchunk borders
+function ms.mapchunk_min_max(hash)
+    local pos_min = minetest.get_position_from_hash(hash)
+    local pos_max = pos_min + sizes.mapchunk.pos_max
+    return pos_min, pos_max
+end
+
+function ms.loaded_or_active(pos)
+    check_mapgen_env("loaded_or_active")
+    return minetest.compare_block_status(pos, "loaded") or
+        minetest.compare_block_status(pos, "active")
+end
+
+function ms.neighboring_mapchunks(hash)
+    check_mapgen_env("neighboring_mapchunks")
+    local pos = minetest.get_position_from_hash(hash)
+    local hashes = {}
+    local diameter = tonumber(minetest.settings:get("viewing_range")) * 2
+    local nr = math.ceil(diameter / sizes.mapchunk.in_nodes)
+    for z = -nr, nr do
+        for y = -nr, nr do
+            for x = -nr, nr do
+                local v = vector.new(x, y, z) * sizes.mapchunk.in_nodes
+                local mapchunk_pos = pos + v
+                table.insert(hashes, ms.mapchunk_hash(mapchunk_pos))
+            end
+        end
+    end
+    return hashes
 end
 
 function ms.save_time(hash)
+    check_mapgen_env("save_time")
     local time = minetest.get_gametime()
     mod_storage:set_int(hash.."_time", time)
 end
 
 function ms.reset_time(hash)
+    check_mapgen_env("reset_time")
     mod_storage:set_int(hash"_time", 0)
 end
 
 function ms.time_since_last_change(hash)
+    check_mapgen_env("time_since_last_change")
     local current_time = minetest.get_gametime()
     return current_time - mod_storage:get_int(hash.."_time")
 end
 
--- A global function to get mapchunk borders
-function ms.mapchunk_borders(hash)
-    local pos_min = minetest.get_position_from_hash(hash)
-    local pos_max = vector.add(pos_min, chunk_side - 1)
-    return pos_min, pos_max
-end
-
 function ms.chunksize_changed()
+    check_mapgen_env("chunksize_changed")
+    local old_chunksize = mod_storage:get_int("chunksize")
     if old_chunksize == 0 then
-        mod_storage:set_int("chunksize", blocks_per_chunk)
+        mod_storage:set_int("chunksize", sizes.mapchunk.in_nodes)
         return false
-    elseif old_chunksize ~= blocks_per_chunk then
+    elseif old_chunksize ~= sizes.mapchunk.in_nodes then
         return true
-    else
-        return false
     end
+    return false
 end
 
 local function bump_counter()
+    check_mapgen_env("bump_counter")
     local counter = mod_storage:get_int("counter")
     counter = counter + 1
     mod_storage:set_int("counter", counter)
 end
 
 local function debump_counter()
+    check_mapgen_env("debump_counter")
     local counter = mod_storage:get_int("counter")
     counter = counter - 1
     if counter < 0 then
@@ -96,10 +129,12 @@ local function debump_counter()
 end
 
 function ms.tracked_chunk_counter()
+    check_mapgen_env("tracked_chunk_counter")
     return mod_storage:get_int("counter")
 end
 
 function ms.labels_to_position(pos, labels_to_add, labels_to_remove)
+    check_mapgen_env("labels_to_position")
     local hash = ms.mapchunk_hash(pos)
     local ls = ms.label_store.new(hash)
     ls:add_labels(labels_to_add)

@@ -30,6 +30,7 @@ mapchunk_shepherd.S = S
 
 dofile(mod_path.."/utils.lua")
 dofile(mod_path.."/tags.lua")
+dofile(mod_path.."/units.lua")
 dofile(mod_path.."/labels.lua")
 dofile(mod_path.."/label_store.lua")
 dofile(mod_path.."/chunk_utils.lua")

@@ -22,37 +22,11 @@ local S = mapchunk_shepherd.S
 -- Globals
 local ms = mapchunk_shepherd
 
-local modpath = minetest.get_modpath('mapchunk_shepherd')
-local dimensions = dofile(modpath.."/chunk_dimensions.lua")
+local mod_path = minetest.get_modpath('mapchunk_shepherd')
+local sizes = dofile(mod_path.."/sizes.lua")
 
-local mapchunk_offset = dimensions.mapchunk_offset
-local chunk_side = dimensions.chunk_side
 local mod_storage = minetest.get_mod_storage()
 local old_chunksize = mod_storage:get_int("chunksize")
-local blocks_per_chunk = dimensions.blocks_per_chunk
-
-local function loaded_or_active(pos)
-    return minetest.compare_block_status(pos, "loaded") or
-        minetest.compare_block_status(pos, "active")
-end
-
-local function neighboring_mapchunks(hash)
-    local pos = minetest.get_position_from_hash(hash)
-    local hashes = {}
-    local diameter = tonumber(minetest.settings:get("viewing_range")) * 2
-    local nr = math.ceil(diameter / chunk_side)
-    for z = -nr, nr do
-        for y = -nr, nr do
-            for x = -nr, nr do
-                local v = vector.new(x, y, z)
-                v = vector.multiply(v, chunk_side)
-                local mapchunk_pos = vector.add(pos, v)
-                table.insert(hashes, ms.mapchunk_hash(mapchunk_pos))
-            end
-        end
-    end
-    return hashes
-end
 
 ---------------------------------------------------------------------
 -- Main loops of the shepherd
@@ -80,7 +54,7 @@ local vm_data = {
 
 local function process_chunk(chunk)
     local hash = chunk.hash
-    local pos_min, pos_max = ms.mapchunk_borders(hash)
+    local pos_min, pos_max = ms.mapchunk_min_max(hash)
     local vm = VoxelManip()
     vm:read_from_map(pos_min, pos_max)
     vm:get_data(vm_data.nodes)
@@ -260,10 +234,10 @@ local function player_tracker()
             return
         end
         local hash = ms.mapchunk_hash(pos)
-        local neighbors = neighboring_mapchunks(hash)
+        local neighbors = ms.neighboring_mapchunks(hash)
         for _, neighbor in pairs(neighbors) do
-            local pos_min, pos_max = ms.mapchunk_borders(neighbor)
-            if loaded_or_active(pos_min) then
+            local pos_min, pos_max = ms.mapchunk_min_max(neighbor)
+            if ms.loaded_or_active(pos_min) then
                 save_and_work(neighbor)
             end
         end
@@ -289,7 +263,7 @@ end
 -- This avoids data corruption.
 if ms.chunksize_changed() then
     minetest.log("error", "Mapchunk Shepherd: chunksize changed to "..
-                 blocks_per_chunk.." from "..old_chunksize..".")
+                 sizes.mapchunk.in_nodes.." from "..old_chunksize..".")
     minetest.log("error", "Mapchunk Shepherd: Changing chunksize can corrupt stored data."..
                  " Refusing to start.")
 else
