@@ -36,29 +36,41 @@ local tag = ms.tag
 
 local registered_tags = {}
 
+function tag.fetch_ipc()
+    local tags = core.ipc_get("shepherd_tags")
+    if type(tags) ~= "table" then
+        return
+    end
+    for name, _ in pairs(tags) do
+        registered_tags[name] = true
+    end
+end
+
 -- Registers a new tag, 'name' is the unique name of the tag.
 function tag.register(name)
+    tag.fetch_ipc()
     assert(type(name) == "string",
            "Tag 'name' should be string but is "..type(name).." instead.")
     assert(not registered_tags[name],
            "Mapchunk shepherd: Tag with name \""..name.."\" already exists!")
+    core.log("error", dump(name))
     registered_tags[name] = true
+    core.ipc_set("shepherd_tags", registered_tags)
 end
 
 -- Checks if the tag is registered, returns a boolean. 'name' is the
 -- unique name of the tag.
 function tag.check(name)
+    tag.fetch_ipc()
     return registered_tags[name]
 end
 
 -- Returns a list of names of registered tags.
 function tag.get_registered()
+    tag.fetch_ipc()
     local registered = {}
     for name, _ in pairs(registered_tags) do
         table.insert(registered, name)
     end
     return registered
 end
-
--- A tag that is assigned to a mapchunk for which a worker failed.
-tag.register("worker_failed")
