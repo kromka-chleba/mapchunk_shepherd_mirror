@@ -98,7 +98,7 @@ local main_watchdog = mapgen_watchdog.new()
 local function mapgen_scanner(vm, minp, maxp, blockseed)
     local mapgen_args = {vm, minp, maxp, blockseed}
     local t1 = minetest.get_us_time()
-    local hash = ms.mapchunk_hash(minp)
+    local hash = ms.mapchunk_hash(minp) -- XXX needs adjustments
     main_watchdog:set_hash(hash)
     main_watchdog:add_scanners(biome_finders)
     main_watchdog:run_scanners(mapgen_args)
@@ -106,4 +106,4 @@ local function mapgen_scanner(vm, minp, maxp, blockseed)
     --minetest.log("error", string.format("elapsed time: %g ms", (minetest.get_us_time() - t1) / 1000))
 end
 
-minetest.register_on_generated(mapgen_scanner)
+--minetest.register_on_generated(mapgen_scanner)

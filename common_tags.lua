@@ -19,5 +19,7 @@
 -- Globals
 local ms = mapchunk_shepherd
 
+ms.tag.register("test")
+ms.tag.register("test_2")
 -- A tag that is assigned to a mapchunk for which a worker failed.
 ms.tag.register("worker_failed")
