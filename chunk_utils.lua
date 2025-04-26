@@ -104,10 +104,41 @@ function ms.mapchunk_min_max(hash)
     return pos_min, pos_max
 end
 
-function ms.loaded_or_active(pos)
+local function get_inner_corners(mapchunk_origin)
+    local corners = {}
+    if sizes.mapchunk.in_mapblocks <= 1 then
+        -- No corners, just one mapblock
+        local hash = minetest.hash_node_position(mapchunk_origin)
+        return {[hash] = mapchunk_origin}
+    end
+    local ori_coords = ms.units.mapblock_coords(mapchunk_origin)
+    for x = 0, 1 do
+        for y = 0, 1 do
+            for z = 0, 1 do
+                local corner = ori_coords +
+                    vector.new(x, y, z) * (sizes.mapchunk.in_mapblocks - 1)
+                local v = vector.new(x == 0 and 1 or -1,
+                                     y == 0 and 1 or -1,
+                                     z == 0 and 1 or -1)
+                local inner_corner = ms.units.mapblock_to_node(corner + v)
+                local hash = minetest.hash_node_position(inner_corner)
+                corners[hash] = inner_corner
+            end
+        end
+    end
+    return corners
+end
+
+function ms.loaded_or_active(mapchunk_origin)
     check_mapgen_env("loaded_or_active")
-    return minetest.compare_block_status(pos, "loaded") or
-        minetest.compare_block_status(pos, "active")
+    local corners = get_inner_corners(mapchunk_origin)
+    for _, pos in pairs(corners) do
+        if minetest.compare_block_status(pos, "loaded") or
+            minetest.compare_block_status(pos, "active") then
+            return true
+        end
+    end
+    return false
 end
 
 function ms.neighboring_mapchunks(hash)
