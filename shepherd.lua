@@ -28,69 +28,8 @@ local sizes = dofile(mod_path.."/sizes.lua")
 local mod_storage = minetest.get_mod_storage()
 local old_chunksize = mod_storage:get_int("chunksize")
 
----------------------------------------------------------------------
--- Main loops of the shepherd
----------------------------------------------------------------------
-
-local work_queue = {}
-
-local longer_break = 2 -- two seconds
-local previous_failure = false
-local small_break = 0.005
-
 local workers = {}
 local workers_by_name = {}
-local worker_running = false
-
-local function worker_break()
-    worker_running = false
-end
-
-local vm_data = {
-    nodes = {},
-    param2 = {},
-    light = {},
-}
-
-local function process_mapblock(mapblock)
-    local hash = mapblock.hash
-    local pos_min, pos_max = ms.mapchunk_min_max(hash)
-    local vm = VoxelManip()
-    vm:read_from_map(pos_min, pos_max)
-    vm:get_data(vm_data.nodes)
-    vm:get_param2_data(vm_data.param2)
-    vm:get_light_data(vm_data.light)
-    local light_changed = false
-    local param2_changed = false
-    local ls = ms.label_store.new(hash)
-    for worker_name, _ in pairs(mapblock.workers) do
-        local worker = workers_by_name[worker_name]
-        local added_labels, removed_labels, light_chd, param2_chd =
-            worker:run(pos_min, pos_max, vm_data)
-        ls:mark_for_addition(added_labels)
-        ls:mark_for_removal(removed_labels)
-        if light_chd then
-            light_changed = true
-        end
-        if param2_chd then
-            param2_changed = true
-        end
-    end
-    ls:save_to_disk()
-    vm:set_data(vm_data.nodes)
-    if light_changed then
-        vm:set_light_data(vm_data.light)
-    end
-    if param2_changed then
-        vm:set_param2_data(vm_data.param2)
-    end
-    vm:write_to_map(light_changed)
-    vm:update_liquids()
-    for worker_name, _ in pairs(mapblock.workers) do
-        local worker = workers_by_name[worker_name]
-        worker:run_afterworker(hash)
-    end
-end
 
 local min_working_time = math.huge
 local max_working_time = 0
@@ -141,51 +80,30 @@ local function get_median_working_time()
     return math.ceil(median)
 end
 
-local function run_workers(dtime)
-    if worker_running then
-        return
-    end
-    worker_running = true
-    if ms.workers_changed then
-        workers = ms.workers
-        workers_by_name = ms.workers_by_name
-        ms.workers_changed = false
-        work_queue = {}
-        minetest.after(longer_break, worker_break)
-        return
-    end
-    if #workers == 0 then
-        minetest.after(longer_break, worker_break)
-        return
-    end
-    local mapblock = work_queue[1]
-    if not mapblock then
-        minetest.after(small_break, worker_break)
-        return
-    end
-    --minetest.log("error", "work queue: "..#work_queue)
-    local t1 = minetest.get_us_time()
-    process_mapblock(mapblock)
-    record_worker_stats(t1)
-    table.remove(work_queue, 1)
-    worker_running = false
-end
+local vm_data = {
+    nodes = {},
+    param2 = {},
+    light = {},
+}
 
-local function add_to_work_queue(hash, worker_name)
-    local exists = false
-    for _, mapblock in pairs(work_queue) do
-        if mapblock.hash == hash then
-            mapblock.workers[worker_name] = true
-            exists = true
-            break
-        end
+local function process_mapblock(hash, vm, worker)
+    local pos_min, pos_max = ms.mapblock_min_max(hash)
+    local ls = ms.label_store.new(hash)
+    local added_labels, removed_labels, light_changed, param2_changed =
+        worker:run(pos_min, pos_max, vm_data)
+    ls:mark_for_addition(added_labels)
+    ls:mark_for_removal(removed_labels)
+    ls:save_to_disk()
+    vm:set_data(vm_data.nodes)
+    if light_changed then
+        vm:set_light_data(vm_data.light)
     end
-    if not exists then
-        local mapblock = {hash = hash,
-                       workers = {}}
-        mapblock.workers[worker_name] = true
-        table.insert(work_queue, mapblock)
+    if param2_changed then
+        vm:set_param2_data(vm_data.param2)
     end
+    vm:write_to_map(light_changed)
+    vm:update_liquids()
+    worker:run_afterworker(hash)
 end
 
 local function labels_baked(labels, time)
@@ -215,22 +133,51 @@ local function good_for_worker(hash, worker)
     return true
 end
 
--- Part of the tracker
-local function save_and_work(hash)
+local function init_voxel_manip(hash)
+    local pos_min, pos_max = ms.mapblock_min_max(hash)
+    local vm = VoxelManip()
+    vm:read_from_map(pos_min, pos_max)
+    vm:get_data(vm_data.nodes)
+    vm:get_param2_data(vm_data.param2)
+    vm:get_light_data(vm_data.light)
+    return vm
+end
+
+local function run_workers(hash)
+    local t1 = minetest.get_us_time()
+    local vm
     for _, worker in pairs(workers) do
         if good_for_worker(hash, worker) then
-            add_to_work_queue(hash, worker.name)
+            vm = vm or init_voxel_manip(hash)
+            process_mapblock(hash, vm, worker)
         end
     end
+    record_worker_stats(t1)
 end
+
+local function refresh_workers()
+    if ms.workers_changed then
+        workers = ms.workers
+        workers_by_name = ms.workers_by_name
+        ms.workers_changed = false
+    end
+end
+
+---------------------------------------------------------------------
+-- Main loop of the shepherd
+---------------------------------------------------------------------
 
 local shepherd_interval = 10 -- in seconds
 
 local function main_loop()
+    core.log("error", "loop")
+    refresh_workers()
     core.blocks_callback({
             mode = "quick",
             callback = function(hash)
-                save_and_work(hash)
+                local new_coords = core.get_position_from_hash(hash)
+                local new_hash = ms.hash(new_coords)
+                run_workers(new_hash)
             end,
     })
     minetest.after(shepherd_interval, main_loop)
@@ -248,6 +195,10 @@ if ms.ensure_compatibility() then
     minetest.register_globalstep(run_workers)
 end
 
+------------------------------------------------------------------
+-- Chat commands
+------------------------------------------------------------------
+
 core.register_privilege(
     "mapchunk_shepherd", {
         description = "Grants access to destructive mapchunk shepherd commands.",
@@ -255,31 +206,29 @@ core.register_privilege(
         give_to_admin = true,
 })
 
--- minetest.register_chatcommand(
---     "shepherd_status", {
---         description = S("Prints status of the Mapchunk Shepherd."),
---         privs = {},
---         func = function(name, param)
---             local worker_names = {}
---             for _, worker in pairs(workers) do
---                 table.insert(worker_names, worker.name)
---             end
---             worker_names = minetest.serialize(worker_names)
---             worker_names = worker_names:gsub("return ", "")
---             local nr_of_chunks = ms.tracked_chunk_counter()
---             local tracked_chunks_status = S("Tracked chunks: ")..nr_of_chunks
---             local work_queue_status = S("Work queue: ")..#work_queue
---             local work_time_status = S("Working time: ")..
---                 S("Min: ")..math.ceil(min_working_time).." ms | "..
---                 S("Max: ")..math.ceil(max_working_time).." ms | "..
---                 S("Moving median: ")..get_median_working_time().." ms | "..
---                 S("Moving average: ")..get_average_working_time().." ms"
---             local worker_status = S("Workers: ")..worker_names
---             return true, tracked_chunks_status.."\n"..
---                 work_queue_status.."\n"..work_time_status.."\n"..
---                 worker_status.."\n"
---         end,
--- })
+minetest.register_chatcommand(
+    "shepherd_status", {
+        description = S("Prints status of the Mapchunk Shepherd."),
+        privs = {},
+        func = function(name, param)
+            local worker_names = {}
+            for _, worker in pairs(workers) do
+                table.insert(worker_names, worker.name)
+            end
+            worker_names = minetest.serialize(worker_names)
+            worker_names = worker_names:gsub("return ", "")
+            local nr_of_chunks = ms.tracked_chunk_counter()
+            local tracked_chunks_status = S("Tracked chunks: ")..nr_of_chunks
+            local work_time_status = S("Working time: ")..
+                S("Min: ")..math.ceil(min_working_time).." ms | "..
+                S("Max: ")..math.ceil(max_working_time).." ms | "..
+                S("Moving median: ")..get_median_working_time().." ms | "..
+                S("Moving average: ")..get_average_working_time().." ms"
+            local worker_status = S("Workers: ")..worker_names
+            return true, tracked_chunks_status.."\n"..work_time_status.."\n"..
+                worker_status.."\n"
+        end,
+})
 
 minetest.register_chatcommand(
     "mapblock_labels", {
@@ -311,6 +260,9 @@ minetest.register_chatcommand(
             local player = minetest.get_player_by_name(name)
             local pos = player:get_pos()
             local hash = ms.mapblock_hash(pos)
+            local old_coords = ms.unhash(hash)
+            core.log("error", "Old coords: ")
+            core.log("error", dump(old_coords))
             local ls = ms.label_store.new(hash)
             ls:add_labels(labels)
             ls:save_to_disk()
