@@ -26,8 +26,7 @@ local units = ms.units
 
 -- Translates node position into mapblock position.
 function units.node_to_mapblock(pos)
-    local mapblock_pos = vector.floor(pos) - sizes.mapchunk_offset
-    mapblock_pos = mapblock_pos / sizes.mapblock.in_nodes
+    local mapblock_pos = vector.floor(pos) / sizes.mapblock.in_nodes
     return mapblock_pos
 end
 
@@ -41,7 +40,6 @@ end
 -- Translates mapblock position into node position.
 function units.mapblock_to_node(mapblock_pos)
     local pos = mapblock_pos * sizes.mapblock.in_nodes
-    pos = pos + sizes.mapchunk_offset
     pos = vector.round(pos) -- round to avoid fp garbage
     return pos
 end
@@ -56,10 +54,8 @@ end
 
 -- Translates mapchunk position into mapblock position.
 function units.mapchunk_to_mapblock(mapchunk_pos)
-    local pos = mapchunk_pos * sizes.mapchunk.in_nodes
-    pos = pos + sizes.mapchunk_offset
-    pos = vector.round(pos) -- round to avoid fp garbage
-    return pos
+    local pos = units.mapchunk_to_node(mapchunk_pos)
+    return units.node_to_mapblock(pos)
 end
 
 -- Returns mapblock coordinates of the mapblock in mapblock units.

@@ -45,15 +45,61 @@ function ms.chunk_side()
     return sizes.mapchunk.in_nodes
 end
 
--- A global function to get hash from pos
-function ms.mapchunk_hash(pos)
-    local origin = ms.units.mapchunk_origin(pos)
-    return minetest.hash_node_position(origin)
+-- Encodes node position in a format that works with mod storage.
+-- Previously I used a bare bones hash returned by
+-- `core.hash_node_position` which was buggy because mod storage did
+-- an implicit `tostring()` which scrambled the x coordinate.
+function ms.hash(coords)
+    local str = coords.x.."_"..coords.y.."_"..coords.z
+    return core.encode_base64(str)
 end
 
--- A global function to get mapchunk borders
+-- Decodes hash produced by `ms.hash`.
+-- Returns a luanti vector (position).
+function ms.unhash(hash)
+    local decoded = core.decode_base64(hash)
+    local a = decoded:split("_")
+    return vector.new(a[1], a[2], a[3])
+end
+
+-- Returns mapblock hash. 'pos' - position in nodes
+function ms.mapblock_hash(pos)
+    local coords = ms.units.mapblock_coords(pos)
+    return ms.hash(coords)
+end
+
+-- Returns mapchunk hash. 'pos' - position in nodes
+function ms.mapchunk_hash(pos)
+    local coords = ms.units.mapchunk_coords(pos)
+    return ms.hash(coords)
+end
+
+-- Returns node position (of the origin) for a mapblock given by 'hash'.
+function ms.mapblock_hash_to_pos(hash)
+    local coords = ms.unhash(hash)
+    return ms.units.mapblock_to_node(coords)
+end
+
+-- Returns node position (of the origin) for a mapchunk given by 'hash'.
+function ms.mapchunk_hash_to_pos(hash)
+    local coords = ms.unhash(hash)
+    return ms.units.mapchunk_to_node(coords)
+end
+
+-- Returns origin and terminus positions of a mapblock given by
+-- `hash`. Hash is expected to be a block position (coordinate)
+-- encoded with `ms.hash`.
+function ms.mapblock_min_max(hash)
+    local pos_min = ms.mapblock_hash_to_pos(hash)
+    local pos_max = pos_min + sizes.mapblock.pos_max
+    return pos_min, pos_max
+end
+
+-- Returns origin and terminus positions of a mapchunk given by
+-- `hash`. Hash is expected to be a mapchunk position (coordinate)
+-- encoded with `ms.hash`.
 function ms.mapchunk_min_max(hash)
-    local pos_min = minetest.get_position_from_hash(hash)
+    local pos_min = ms.mapchunk_hash_to_pos(hash)
     local pos_max = pos_min + sizes.mapchunk.pos_max
     return pos_min, pos_max
 end
@@ -66,7 +112,7 @@ end
 
 function ms.neighboring_mapchunks(hash)
     check_mapgen_env("neighboring_mapchunks")
-    local pos = minetest.get_position_from_hash(hash)
+    local pos = ms.mapchunk_hash_to_pos(hash)
     local hashes = {}
     local diameter = tonumber(minetest.settings:get("viewing_range")) * 2
     local nr = math.ceil(diameter / sizes.mapchunk.in_nodes)

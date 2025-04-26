@@ -40,7 +40,7 @@ sizes.node = {
 local mapblock_max = mapblock_size - 1
 
 sizes.mapblock = {
-    in_nodes = mapchunk_size,
+    in_nodes = mapblock_size,
     in_mapchunks = 1 / blocks_per_chunk,
     pos_min = vector.zero(),
     pos_max = vector.new(1, 1, 1) * mapblock_max,

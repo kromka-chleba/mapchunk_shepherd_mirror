@@ -53,7 +53,6 @@ function tag.register(name)
            "Tag 'name' should be string but is "..type(name).." instead.")
     assert(not registered_tags[name],
            "Mapchunk shepherd: Tag with name \""..name.."\" already exists!")
-    core.log("error", dump(name))
     registered_tags[name] = true
     core.ipc_set("shepherd_tags", registered_tags)
 end
