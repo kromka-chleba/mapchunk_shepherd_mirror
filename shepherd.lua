@@ -1,6 +1,6 @@
 --[[
     This is a part of "Mapchunk Shepherd".
-    Copyright (C) 2023-2024 Jan Wielkiewicz <tona_kosmicznego_smiecia@interia.pl>
+    Copyright (C) 2023-2025 Jan Wielkiewicz <tona_kosmicznego_smiecia@interia.pl>
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -259,14 +259,9 @@ end
 -- Here the trackers is started
 ------------------------------------------------------------------
 
--- Prevent starting Mapchunk Shepherd if chunksize changed for the world.
--- This avoids data corruption.
-if ms.chunksize_changed() then
-    minetest.log("error", "Mapchunk Shepherd: chunksize changed to "..
-                 sizes.mapchunk.in_nodes.." from "..old_chunksize..".")
-    minetest.log("error", "Mapchunk Shepherd: Changing chunksize can corrupt stored data."..
-                 " Refusing to start.")
-else
+-- Only start the shepherd if the database format is correct and
+-- chunksize did not change.
+if ms.ensure_compatibility() then
     -- Start the tracker
     minetest.register_globalstep(player_tracker_loop)
     minetest.register_globalstep(run_workers)

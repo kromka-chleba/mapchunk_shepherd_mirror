@@ -36,6 +36,7 @@ dofile(mod_path.."/labels.lua")
 dofile(mod_path.."/label_store.lua")
 dofile(mod_path.."/chunk_utils.lua")
 dofile(mod_path.."/dogs.lua")
+dofile(mod_path.."/compatibility.lua")
 dofile(mod_path.."/shepherd.lua")
 dofile(mod_path.."/gennotify_listener.lua")
 

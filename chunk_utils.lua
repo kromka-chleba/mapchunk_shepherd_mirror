@@ -176,18 +176,6 @@ function ms.time_since_last_change(hash)
     return current_time - mod_storage:get_int(hash.."_time")
 end
 
-function ms.chunksize_changed()
-    check_mapgen_env("chunksize_changed")
-    local old_chunksize = mod_storage:get_int("chunksize")
-    if old_chunksize == 0 then
-        mod_storage:set_int("chunksize", sizes.mapchunk.in_nodes)
-        return false
-    elseif old_chunksize ~= sizes.mapchunk.in_nodes then
-        return true
-    end
-    return false
-end
-
 local function bump_counter()
     check_mapgen_env("bump_counter")
     local counter = mod_storage:get_int("counter")
