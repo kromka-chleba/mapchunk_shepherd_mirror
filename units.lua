@@ -18,7 +18,7 @@
 
 local ms = mapchunk_shepherd
 
-local mod_path = minetest.get_modpath("mapchunk_shepherd")
+local mod_path = core.get_modpath("mapchunk_shepherd")
 local sizes = dofile(mod_path.."/sizes.lua")
 
 ms.units = {}

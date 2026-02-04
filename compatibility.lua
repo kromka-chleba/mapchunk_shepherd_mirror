@@ -30,8 +30,8 @@
     1. "shepherd_db_version" (integer) - The version of the database format
     2. "chunksize" (integer) - The mapchunk size setting (in mapblocks)
     3. "<mapchunk_hash>" (string) - Serialized label data for each mapchunk
-       - Hash is obtained via minetest.hash_node_position(mapchunk_min_pos)
-       - Value is minetest.serialize of an array of {tag, timestamp} pairs
+       - Hash is obtained via core.hash_node_position(mapchunk_min_pos)
+       - Value is core.serialize of an array of {tag, timestamp} pairs
        - Example: "return {{\"chunk_tracked\", 1234}, {\"scanned\", 5678}}"
 
     Labels Format:
@@ -48,9 +48,9 @@
 -- Globals
 local ms = mapchunk_shepherd
 
-local mod_path = minetest.get_modpath("mapchunk_shepherd")
+local mod_path = core.get_modpath("mapchunk_shepherd")
 local sizes = dofile(mod_path.."/sizes.lua")
-local mod_storage = minetest.get_mod_storage()
+local mod_storage = core.get_mod_storage()
 
 -- Returns version of the Mapchunk Shepherd mod
 function ms.mod_version()
@@ -103,7 +103,7 @@ end
 -- WARNING: This permanently deletes all mapchunk data!
 -- Only call this for fresh initialization or when explicitly requested.
 function ms.database.purge()
-    minetest.log("warning", "Mapchunk Shepherd: Purging all database keys from mod storage.")
+    core.log("warning", "Mapchunk Shepherd: Purging all database keys from mod storage.")
     for _, key in pairs(mod_storage:get_keys()) do
         mod_storage:set_string(key, "")
     end
@@ -119,7 +119,7 @@ function ms.database.initialize()
         end
         ms.database.update_version()
         ms.database.update_chunksize()
-        minetest.log("action", "Mapchunk Shepherd: Database initialized with version "..
+        core.log("action", "Mapchunk Shepherd: Database initialized with version "..
                      ms.database.version().." and chunksize "..sizes.mapchunk.in_mapblocks..".")
     end
 end
@@ -151,10 +151,10 @@ end
 
 -- Placeholder for future conversion from version 1 to version 2
 -- function ms.database.convert_from_v1()
---     minetest.log("action", "Mapchunk Shepherd: Converting database from version 1 to 2...")
+--     core.log("action", "Mapchunk Shepherd: Converting database from version 1 to 2...")
 --     -- Conversion logic here
 --     ms.database.update_version()
---     minetest.log("action", "Mapchunk Shepherd: Database conversion to version 2 complete.")
+--     core.log("action", "Mapchunk Shepherd: Database conversion to version 2 complete.")
 -- end
 
 -- Attempts to convert the database from stored_version to the current version.
@@ -178,7 +178,7 @@ function ms.database.convert()
     
     -- If we reach here, no actual data conversion was needed (structure unchanged)
     -- Just bump the version number to match the current API version
-    minetest.log("action", "Mapchunk Shepherd: Updating database version from "..
+    core.log("action", "Mapchunk Shepherd: Updating database version from "..
                  stored.." to "..current.." (no data conversion needed).")
     ms.database.update_version()
     return true
@@ -190,26 +190,26 @@ end
 function ms.ensure_compatibility()
     -- Check if database is too new
     if ms.database.too_new() then
-        minetest.log("error", "Mapchunk Shepherd: Database version "..
+        core.log("error", "Mapchunk Shepherd: Database version "..
                      ms.database.stored_version().." is newer than supported version "..
                      ms.database.version()..".")
-        minetest.log("error", "Mapchunk Shepherd: This may happen if you downgraded the mod.")
-        minetest.log("error", "Mapchunk Shepherd: Please check for mod updates or restore a newer version.")
-        minetest.log("error", "Mapchunk Shepherd: Refusing to start to prevent data corruption.")
+        core.log("error", "Mapchunk Shepherd: This may happen if you downgraded the mod.")
+        core.log("error", "Mapchunk Shepherd: Please check for mod updates or restore a newer version.")
+        core.log("error", "Mapchunk Shepherd: Refusing to start to prevent data corruption.")
         return false
     end
     
     -- Check if chunksize changed (only relevant for initialized databases)
     if ms.chunksize_changed() then
-        minetest.log("error", "Mapchunk Shepherd: Chunksize changed from "..
+        core.log("error", "Mapchunk Shepherd: Chunksize changed from "..
                      ms.database.chunksize().." to "..sizes.mapchunk.in_mapblocks..".")
-        minetest.log("error", "Mapchunk Shepherd: Changing chunksize invalidates all stored mapchunk data.")
-        minetest.log("error", "Mapchunk Shepherd: Stored labels use mapchunk hashes based on old chunksize,")
-        minetest.log("error", "Mapchunk Shepherd: which would cause data corruption and incorrect behavior.")
-        minetest.log("error", "Mapchunk Shepherd: To use the new chunksize, you must:")
-        minetest.log("error", "Mapchunk Shepherd:   1. Delete the mod storage for this mod (typically <worlddir>/mod_storage_<modname>)")
-        minetest.log("error", "Mapchunk Shepherd:   2. Or restore the old chunksize setting")
-        minetest.log("error", "Mapchunk Shepherd: Refusing to start.")
+        core.log("error", "Mapchunk Shepherd: Changing chunksize invalidates all stored mapchunk data.")
+        core.log("error", "Mapchunk Shepherd: Stored labels use mapchunk hashes based on old chunksize,")
+        core.log("error", "Mapchunk Shepherd: which would cause data corruption and incorrect behavior.")
+        core.log("error", "Mapchunk Shepherd: To use the new chunksize, you must:")
+        core.log("error", "Mapchunk Shepherd:   1. Delete the mod storage for this mod (typically <worlddir>/mod_storage_<modname>)")
+        core.log("error", "Mapchunk Shepherd:   2. Or restore the old chunksize setting")
+        core.log("error", "Mapchunk Shepherd: Refusing to start.")
         return false
     end
     
@@ -219,15 +219,15 @@ function ms.ensure_compatibility()
     -- Convert database if outdated
     if ms.database.outdated() then
         if not ms.database.convert() then
-            minetest.log("error", "Mapchunk Shepherd: Database conversion failed.")
-            minetest.log("error", "Mapchunk Shepherd: Check logs above for conversion details.")
-            minetest.log("error", "Mapchunk Shepherd: Refusing to start.")
+            core.log("error", "Mapchunk Shepherd: Database conversion failed.")
+            core.log("error", "Mapchunk Shepherd: Check logs above for conversion details.")
+            core.log("error", "Mapchunk Shepherd: Refusing to start.")
             return false
         end
     end
     
-    minetest.log("action", "Mapchunk Shepherd: Database compatibility check passed.")
-    minetest.log("action", "Mapchunk Shepherd: Using database version "..ms.database.version()..
+    core.log("action", "Mapchunk Shepherd: Database compatibility check passed.")
+    core.log("action", "Mapchunk Shepherd: Using database version "..ms.database.version()..
                  " with chunksize "..sizes.mapchunk.in_mapblocks..".")
     return true
 end

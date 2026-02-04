@@ -37,13 +37,13 @@ ms.label_store = {}
 local label_store = ms.label_store
 label_store.__index = label_store
 
--- We're in mapgen env when 'minetest.save_gen_notify' is a function.
--- In the ordinary env 'minetest.save_gen_notify' is nil.
-local mapgen_env = minetest.save_gen_notify
+-- We're in mapgen env when 'core.save_gen_notify' is a function.
+-- In the ordinary env 'core.save_gen_notify' is nil.
+local mapgen_env = core.save_gen_notify
 local mod_storage
 
 if not mapgen_env then
-    mod_storage = minetest.get_mod_storage()
+    mod_storage = core.get_mod_storage()
 end
 
 -- Creates a new label_store object. 'hash' is a mapchunk hash created
@@ -262,12 +262,12 @@ function label_store:save_gen_notify()
     if not next(self.staged_labels) then
         return
     end
-    local gennotify = minetest.get_mapgen_object("gennotify")
+    local gennotify = core.get_mapgen_object("gennotify")
     local obj = gennotify.custom["mapchunk_shepherd:labeler"] or {}
     local change = {
         self.hash,
         self.staged_labels,
     }
     table.insert(obj, change)
-    minetest.save_gen_notify("mapchunk_shepherd:labeler", obj)
+    core.save_gen_notify("mapchunk_shepherd:labeler", obj)
 end
