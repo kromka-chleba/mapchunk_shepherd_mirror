@@ -22,10 +22,10 @@ local S = mapchunk_shepherd.S
 -- Globals
 local ms = mapchunk_shepherd
 
-local mod_path = minetest.get_modpath('mapchunk_shepherd')
+local mod_path = core.get_modpath('mapchunk_shepherd')
 local sizes = dofile(mod_path.."/sizes.lua")
 
-local mod_storage = minetest.get_mod_storage()
+local mod_storage = core.get_mod_storage()
 local old_chunksize = mod_storage:get_int("chunksize")
 
 ---------------------------------------------------------------------
@@ -103,8 +103,8 @@ local worker_exec_times = {}
 -- Records worker execution time statistics for performance monitoring.
 -- time: The microsecond timestamp from when the worker started.
 local function record_worker_stats(time)
-    local elapsed = (minetest.get_us_time() - time) / 1000
-    --minetest.log("error", string.format("elapsed time: %g ms", elapsed))
+    local elapsed = (core.get_us_time() - time) / 1000
+    --core.log("error", string.format("elapsed time: %g ms", elapsed))
     if elapsed < min_working_time then
         min_working_time = elapsed
     end
@@ -165,20 +165,20 @@ local function run_workers(dtime)
         workers_by_name = ms.workers_by_name
         ms.workers_changed = false
         work_queue = {}
-        minetest.after(longer_break, worker_break)
+        core.after(longer_break, worker_break)
         return
     end
     if #workers == 0 then
-        minetest.after(longer_break, worker_break)
+        core.after(longer_break, worker_break)
         return
     end
     local chunk = work_queue[1]
     if not chunk then
-        minetest.after(small_break, worker_break)
+        core.after(small_break, worker_break)
         return
     end
-    --minetest.log("error", "work queue: "..#work_queue)
-    local t1 = minetest.get_us_time()
+    --core.log("error", "work queue: "..#work_queue)
+    local t1 = core.get_us_time()
     process_chunk(chunk)
     record_worker_stats(t1)
     table.remove(work_queue, 1)
@@ -258,7 +258,7 @@ end
 -- Runs periodically to discover mapchunks in players' neighborhoods.
 -- Checks if mapchunks are loaded before adding them to the work queue.
 local function player_tracker()
-    local players = minetest.get_connected_players()
+    local players = core.get_connected_players()
     for _, player in pairs(players) do
         local pos = player:get_pos()
         if not pos then
@@ -296,11 +296,11 @@ end
 -- chunksize did not change.
 if ms.ensure_compatibility() then
     -- Start the tracker
-    minetest.register_globalstep(player_tracker_loop)
-    minetest.register_globalstep(run_workers)
+    core.register_globalstep(player_tracker_loop)
+    core.register_globalstep(run_workers)
 end
 
-minetest.register_chatcommand(
+core.register_chatcommand(
     "shepherd_status", {
         description = S("Prints status of the Mapchunk Shepherd."),
         privs = {},
@@ -309,7 +309,7 @@ minetest.register_chatcommand(
             for _, worker in pairs(workers) do
                 table.insert(worker_names, worker.name)
             end
-            worker_names = minetest.serialize(worker_names)
+            worker_names = core.serialize(worker_names)
             worker_names = worker_names:gsub("return ", "")
             local nr_of_chunks = ms.tracked_chunk_counter()
             local tracked_chunks_status = S("Tracked chunks: ")..nr_of_chunks
@@ -326,12 +326,12 @@ minetest.register_chatcommand(
         end,
 })
 
-minetest.register_chatcommand(
+core.register_chatcommand(
     "chunk_labels", {
         description = S("Prints labels of the chunk where the player stands."),
         privs = {},
         func = function(name, param)
-            local player = minetest.get_player_by_name(name)
+            local player = core.get_player_by_name(name)
             local pos = player:get_pos()
             local hash = ms.mapchunk_hash(pos)
             local ls = ms.label_store.new(hash)

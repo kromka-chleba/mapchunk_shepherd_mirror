@@ -23,8 +23,8 @@
 -- Globals
 mapchunk_shepherd = {}
 
-local mod_path = minetest.get_modpath('mapchunk_shepherd')
-local S = minetest.get_translator("mapchunk_shepherd")
+local mod_path = core.get_modpath('mapchunk_shepherd')
+local S = core.get_translator("mapchunk_shepherd")
 
 mapchunk_shepherd.S = S
 
@@ -40,4 +40,4 @@ dofile(mod_path.."/compatibility.lua")
 dofile(mod_path.."/shepherd.lua")
 dofile(mod_path.."/gennotify_listener.lua")
 
-minetest.register_mapgen_script(mod_path.."/mapgen_env.lua")
+core.register_mapgen_script(mod_path.."/mapgen_env.lua")

@@ -1,7 +1,7 @@
 Mapchunk Shepherd
 =================
 
-A Minetest mod for tracking, labeling, and modifying mapchunks based on player movement and mapgen events.
+A Luanti mod for tracking, labeling, and modifying mapchunks based on player movement and mapgen events.
 
 Authors of source code
 ----------------------
@@ -39,7 +39,7 @@ By default a mapchunk has a side of 80 (16 * 5).
 Is defined as -16 * math.floor(chunk_size / 2) so by default -32.
 It is the number of nodes by which each mapchunk was shifted relatively to x = 0, y = 0, z = 0 position of the map.
 This means the beginning of the first chunk is not at x = 0, y = 0, z = 0 but at x = -32, y = -32, z = -32 (when chunk_size = 5).
-Apparently Minetest does it this way so players spawn at the center of a mapchunk and not at the edge.
+Apparently Luanti does it this way so players spawn at the center of a mapchunk and not at the edge.
 
 * Player tracker:
 The facility responsible for tracking each player and loading neighboring mapchunks into the system.
@@ -53,7 +53,7 @@ The neighborhood size is determined by the viewing_range setting multiplied by 2
 * Label:
 A string tag combined with a timestamp assigned to a mapchunk.
 It describes the contents or properties of the chunk, e.g. "has_trees" or "worker_failed".
-Labels are stored in Minetest's mod storage using minetest.serialize, with each label containing
+Labels are stored in Luanti's mod storage using core.serialize, with each label containing
 a tag (string) and a timestamp (integer) representing the game time when it was created/modified.
 The number of possible labels per mapchunk is virtually unlimited.
 Labels must be registered using ms.tag.register() before use.
@@ -64,7 +64,7 @@ Use mapgen scanners (biome/decoration finders) or workers for mapchunk analysis 
 
 * Mapgen Scanner (Biome/Decoration Finder):
 Finds mapchunks that contain given mapgen biomes or decorations and adds labels to the mapchunks.
-Uses minetest.register_on_generated to label mapchunks during generation.
+Uses core.register_on_generated to label mapchunks during generation.
 More efficient than post-generation scanning because it uses mapgen data directly.
 Use cases include finding surface chunks by detecting surface-only decorations or specific biomes.
 
@@ -87,7 +87,7 @@ Tracking happens automatically as players explore the world.
 * Mapchunk hash:
 Is the encoded position of the origin (minimal corner) of a mapchunk that serves as the mapchunk's ID.
 It is obtained using ms.hash(coords) which encodes the position as a base64 string.
-This format is compatible with mod storage (unlike raw minetest.hash_node_position which had issues).
+This format is compatible with mod storage (unlike raw core.hash_node_position which had issues).
 
 ## API Overview
 

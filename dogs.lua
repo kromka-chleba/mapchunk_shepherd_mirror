@@ -25,10 +25,10 @@ ms.workers_changed = true
 
 local placeholder_id_pairs = {}
 local placeholder_id_finder_pairs = {}
-local ignore_id = minetest.get_content_id("ignore")
-local air_id = minetest.get_content_id("air")
+local ignore_id = core.get_content_id("ignore")
+local air_id = core.get_content_id("air")
 
-local blocks_per_chunk = tonumber(minetest.get_mapgen_setting("chunksize"))
+local blocks_per_chunk = tonumber(core.get_mapgen_setting("chunksize"))
 local chunk_side = blocks_per_chunk * 16
 
 -- iterate over ids of all possible existing nodes
@@ -103,7 +103,7 @@ function worker.new(args)
     local w = {}
     local args = table.copy(args)
     if type(args.fun) ~= "function" then
-        minetest.log("error", "Mapchunk shepherd: Trying to register worker \""..
+        core.log("error", "Mapchunk shepherd: Trying to register worker \""..
                      args.name.."\" but argument \"fun\" is not a function!")
         return
     end
@@ -206,8 +206,8 @@ function ms.create_simple_replacer(args)
     local not_found_remove = args.not_found_remove
     local ids = table.copy(placeholder_id_pairs)
     for to_find, replacement in pairs(find_replace_pairs) do
-        local find_id = minetest.get_content_id(to_find)
-        local replacement_id = minetest.get_content_id(replacement)
+        local find_id = core.get_content_id(to_find)
+        local replacement_id = core.get_content_id(replacement)
         ids[find_id] = replacement_id
     end
     return function(pos_min, pos_max, vm_data, chance)
@@ -251,13 +251,13 @@ function ms.create_param2_aware_replacer(args)
     local higher_than = args.higher_than or -1
     local ids = table.copy(placeholder_id_pairs)
     for to_find, replacement in pairs(find_replace_pairs) do
-        local find_id = minetest.get_content_id(to_find)
-        local replacement_id = minetest.get_content_id(replacement)
+        local find_id = core.get_content_id(to_find)
+        local replacement_id = core.get_content_id(replacement)
         ids[find_id] = replacement_id
     end
     return function(pos_min, pos_max, vm_data, chance)
         local chance = chance or 1
-        --local t1 = minetest.get_us_time()
+        --local t1 = core.get_us_time()
         local found = false
         local data = vm_data.nodes
         local data_param2 = vm_data.param2
@@ -276,7 +276,7 @@ function ms.create_param2_aware_replacer(args)
             end
         end
         if found then
-            --minetest.log("error", string.format("elapsed time: %g ms", (minetest.get_us_time() - t1) / 1000))
+            --core.log("error", string.format("elapsed time: %g ms", (core.get_us_time() - t1) / 1000))
             return labels_to_add, labels_to_remove, true
         else
             return not_found, not_found_remove
@@ -302,13 +302,13 @@ function ms.create_light_aware_replacer(args)
     local higher_than = args.higher_than or -1
     local ids = table.copy(placeholder_id_pairs)
     for to_find, replacement in pairs(find_replace_pairs) do
-        local find_id = minetest.get_content_id(to_find)
-        local replacement_id = minetest.get_content_id(replacement)
+        local find_id = core.get_content_id(to_find)
+        local replacement_id = core.get_content_id(replacement)
         ids[find_id] = replacement_id
     end
     return function(pos_min, pos_max, vm_data, chance)
         local chance = chance or 1
-        --local t1 = minetest.get_us_time()
+        --local t1 = core.get_us_time()
         local found = false
         local data = vm_data.nodes
         local data_light = vm_data.light
@@ -336,7 +336,7 @@ function ms.create_light_aware_replacer(args)
             end
         end
         if found then
-            --minetest.log("error", string.format("elapsed time: %g ms", (minetest.get_us_time() - t1) / 1000))
+            --core.log("error", string.format("elapsed time: %g ms", (core.get_us_time() - t1) / 1000))
             return labels_to_add, labels_to_remove, true
         else
             return not_found, not_found_remove
@@ -368,21 +368,21 @@ function ms.create_light_aware_top_placer(args)
     local nodes_to_find = args.to_find
     local find_ids = table.copy(placeholder_id_finder_pairs)
     for _, name in pairs(nodes_to_find) do
-        table.insert(find_ids, minetest.get_content_id(name))
-        local f_id = minetest.get_content_id(name)
+        table.insert(find_ids, core.get_content_id(name))
+        local f_id = core.get_content_id(name)
         find_ids[f_id] = f_id
     end
     -- Replace ids
     local find_replace_pairs = args.find_replace_pairs
     local replace_ids = table.copy(placeholder_id_pairs)
     for to_find, replacement in pairs(find_replace_pairs) do
-        local find_id = minetest.get_content_id(to_find)
-        local replacement_id = minetest.get_content_id(replacement)
+        local find_id = core.get_content_id(to_find)
+        local replacement_id = core.get_content_id(replacement)
         replace_ids[find_id] = replacement_id
     end
     return function(pos_min, pos_max, vm_data, chance)
         local chance = chance or 1
-        --local t1 = minetest.get_us_time()
+        --local t1 = core.get_us_time()
         local found = false
         local data = vm_data.nodes
         local data_light = vm_data.light
@@ -407,7 +407,7 @@ function ms.create_light_aware_top_placer(args)
             end
         end
         if found then
-            --minetest.log("error", string.format("elapsed time: %g ms", (minetest.get_us_time() - t1) / 1000))
+            --core.log("error", string.format("elapsed time: %g ms", (core.get_us_time() - t1) / 1000))
             return labels_to_add, labels_to_remove
         else
             return not_found, not_found_remove
@@ -473,18 +473,18 @@ function ms.create_neighbor_aware_replacer(args)
     local not_found_remove = args.not_found_remove
     local ids = table.copy(placeholder_id_pairs)
     for to_find, replacement in pairs(find_replace_pairs) do
-        local find_id = minetest.get_content_id(to_find)
-        local replacement_id = minetest.get_content_id(replacement)
+        local find_id = core.get_content_id(to_find)
+        local replacement_id = core.get_content_id(replacement)
         ids[find_id] = replacement_id
     end
     local neighbor_ids = {}
     for _, neighbor in pairs(neighbors) do
-        local id = minetest.get_content_id(neighbor)
+        local id = core.get_content_id(neighbor)
         neighbor_ids[id] = true
     end
     return function(pos_min, pos_max, vm_data, chance)
         local chance = chance or 1
-        --local t1 = minetest.get_us_time()
+        --local t1 = core.get_us_time()
         local found = false
         local data = vm_data.nodes
         for i = 1, #data do
@@ -506,7 +506,7 @@ function ms.create_neighbor_aware_replacer(args)
             end
         end
         if found then
-            --minetest.log("error", string.format("elapsed time: %g ms", (minetest.get_us_time() - t1) / 1000))
+            --core.log("error", string.format("elapsed time: %g ms", (core.get_us_time() - t1) / 1000))
             return labels_to_add, labels_to_remove, true
         else
             return not_found, not_found_remove
@@ -527,16 +527,16 @@ function ms.create_deco_finder(args)
     local labels_to_add = args.add_labels or {}
     local labels_to_remove = args.remove_labels or {}
     for _, deco in pairs(deco_list) do
-        local id = minetest.get_decoration_id(deco.name)
-        minetest.set_gen_notify({decoration = true}, {id})
+        local id = core.get_decoration_id(deco.name)
+        core.set_gen_notify({decoration = true}, {id})
         local corners = false
         if deco.schematic then
-            local schematic = minetest.read_schematic(deco.schematic, {})
+            local schematic = core.read_schematic(deco.schematic, {})
             corners = get_corners(deco, schematic.size)
         end
-        minetest.register_on_generated(
+        core.register_on_generated(
             function(minp, maxp, blockseed)
-                local gennotify = minetest.get_mapgen_object("gennotify")
+                local gennotify = core.get_mapgen_object("gennotify")
                 local pos_list = gennotify["decoration#"..id] or {}
                 if #pos_list <= 0 then
                     return
