@@ -207,7 +207,7 @@ function ms.ensure_compatibility()
         minetest.log("error", "Mapchunk Shepherd: Stored labels use mapchunk hashes based on old chunksize,")
         minetest.log("error", "Mapchunk Shepherd: which would cause data corruption and incorrect behavior.")
         minetest.log("error", "Mapchunk Shepherd: To use the new chunksize, you must:")
-        minetest.log("error", "Mapchunk Shepherd:   1. Delete the mod storage directory in your world folder")
+        minetest.log("error", "Mapchunk Shepherd:   1. Delete the mod storage for this mod (typically <worlddir>/mod_storage_<modname>)")
         minetest.log("error", "Mapchunk Shepherd:   2. Or restore the old chunksize setting")
         minetest.log("error", "Mapchunk Shepherd: Refusing to start.")
         return false
