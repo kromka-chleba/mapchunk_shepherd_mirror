@@ -159,19 +159,10 @@ end
 
 -- Attempts to convert the database from stored_version to the current version.
 -- Returns true if conversion was successful or not needed, false otherwise.
+-- Note: This should only be called when database is outdated (stored < current).
 function ms.database.convert()
     local stored = ms.database.stored_version()
     local current = ms.database.version()
-    
-    if stored == current then
-        return true -- No conversion needed
-    end
-    
-    if stored > current then
-        minetest.log("error", "Mapchunk Shepherd: Database version "..stored..
-                     " is newer than supported version "..current..". Cannot downgrade.")
-        return false
-    end
     
     -- Conversion chain: upgrade from stored version to current version
     -- For now, we only have version 1, so no conversions exist yet
@@ -215,7 +206,7 @@ function ms.ensure_compatibility()
         minetest.log("error", "Mapchunk Shepherd: Stored labels use mapchunk hashes based on old chunksize,")
         minetest.log("error", "Mapchunk Shepherd: which would cause data corruption and incorrect behavior.")
         minetest.log("error", "Mapchunk Shepherd: To use the new chunksize, you must:")
-        minetest.log("error", "Mapchunk Shepherd:   1. Delete mod storage (world/data/mapchunk_shepherd)")
+        minetest.log("error", "Mapchunk Shepherd:   1. Delete the mod storage directory in your world folder")
         minetest.log("error", "Mapchunk Shepherd:   2. Or restore the old chunksize setting")
         minetest.log("error", "Mapchunk Shepherd: Refusing to start.")
         return false
