@@ -176,10 +176,10 @@ function ms.database.convert()
     --     stored = 3
     -- end
     
-    -- If we reach here without implementing conversion, just bump version
-    -- This handles the case where database structure didn't actually change
-    minetest.log("action", "Mapchunk Shepherd: Upgrading database from version "..
-                 stored.." to version "..current..".")
+    -- If we reach here, no actual data conversion was needed (structure unchanged)
+    -- Just bump the version number to match the current API version
+    minetest.log("action", "Mapchunk Shepherd: Updating database version from "..
+                 stored.." to "..current.." (no data conversion needed).")
     ms.database.update_version()
     return true
 end
@@ -193,7 +193,8 @@ function ms.ensure_compatibility()
         minetest.log("error", "Mapchunk Shepherd: Database version "..
                      ms.database.stored_version().." is newer than supported version "..
                      ms.database.version()..".")
-        minetest.log("error", "Mapchunk Shepherd: Please update the mod to a newer version.")
+        minetest.log("error", "Mapchunk Shepherd: This may happen if you downgraded the mod.")
+        minetest.log("error", "Mapchunk Shepherd: Please check for mod updates or restore a newer version.")
         minetest.log("error", "Mapchunk Shepherd: Refusing to start to prevent data corruption.")
         return false
     end
@@ -218,7 +219,8 @@ function ms.ensure_compatibility()
     -- Convert database if outdated
     if ms.database.outdated() then
         if not ms.database.convert() then
-            minetest.log("error", "Mapchunk Shepherd: Failed to convert database.")
+            minetest.log("error", "Mapchunk Shepherd: Database conversion failed.")
+            minetest.log("error", "Mapchunk Shepherd: Check logs above for conversion details.")
             minetest.log("error", "Mapchunk Shepherd: Refusing to start.")
             return false
         end
