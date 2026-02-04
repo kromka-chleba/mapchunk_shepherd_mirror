@@ -183,7 +183,7 @@ end
 -- hash: Mapchunk hash to reset time for.
 function ms.reset_time(hash)
     check_mapgen_env("reset_time")
-    mod_storage:set_int(hash"_time", 0)
+    mod_storage:set_int(hash.."_time", 0)
 end
 
 -- Returns the time in game seconds since a mapchunk was last modified.
