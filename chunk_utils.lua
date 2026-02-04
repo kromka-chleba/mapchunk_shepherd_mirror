@@ -41,6 +41,7 @@ local function check_mapgen_env(function_name)
                function_name))
 end
 
+-- Returns the side length of a mapchunk in nodes.
 function ms.chunk_side()
     return sizes.mapchunk.in_nodes
 end
@@ -74,13 +75,17 @@ function ms.mapchunk_hash(pos)
     return ms.hash(coords)
 end
 
--- Returns node position (of the origin) for a mapblock given by 'hash'.
+-- Returns the node position (of the origin) for a mapblock given by 'hash'.
+-- hash: Mapblock hash obtained from ms.mapblock_hash().
+-- Returns: Vector representing the origin node position.
 function ms.mapblock_hash_to_pos(hash)
     local coords = ms.unhash(hash)
     return ms.units.mapblock_to_node(coords)
 end
 
--- Returns node position (of the origin) for a mapchunk given by 'hash'.
+-- Returns the node position (of the origin) for a mapchunk given by 'hash'.
+-- hash: Mapchunk hash obtained from ms.mapchunk_hash().
+-- Returns: Vector representing the origin node position.
 function ms.mapchunk_hash_to_pos(hash)
     local coords = ms.unhash(hash)
     return ms.units.mapchunk_to_node(coords)
@@ -129,6 +134,9 @@ local function get_inner_corners(mapchunk_origin)
     return corners
 end
 
+-- Checks if a mapchunk is loaded or active by checking its inner corner mapblocks.
+-- mapchunk_origin: Origin position vector of the mapchunk in nodes.
+-- Returns: True if at least one inner corner mapblock is loaded or active.
 function ms.loaded_or_active(mapchunk_origin)
     check_mapgen_env("loaded_or_active")
     local corners = get_inner_corners(mapchunk_origin)
@@ -141,6 +149,10 @@ function ms.loaded_or_active(mapchunk_origin)
     return false
 end
 
+-- Returns a list of mapchunk hashes for all mapchunks in the neighborhood of a given mapchunk.
+-- The neighborhood size is based on the viewing_range setting.
+-- hash: Mapchunk hash for the center mapchunk.
+-- Returns: Table of mapchunk hashes in the neighborhood.
 function ms.neighboring_mapchunks(hash)
     check_mapgen_env("neighboring_mapchunks")
     local pos = ms.mapchunk_hash_to_pos(hash)
@@ -159,23 +171,31 @@ function ms.neighboring_mapchunks(hash)
     return hashes
 end
 
+-- Saves the current game time as the last modification time for a mapchunk.
+-- hash: Mapchunk hash to save time for.
 function ms.save_time(hash)
     check_mapgen_env("save_time")
     local time = minetest.get_gametime()
     mod_storage:set_int(hash.."_time", time)
 end
 
+-- Resets the last modification time for a mapchunk to 0.
+-- hash: Mapchunk hash to reset time for.
 function ms.reset_time(hash)
     check_mapgen_env("reset_time")
     mod_storage:set_int(hash"_time", 0)
 end
 
+-- Returns the time in game seconds since a mapchunk was last modified.
+-- hash: Mapchunk hash to check.
+-- Returns: Number of game seconds since last change.
 function ms.time_since_last_change(hash)
     check_mapgen_env("time_since_last_change")
     local current_time = minetest.get_gametime()
     return current_time - mod_storage:get_int(hash.."_time")
 end
 
+-- Increments the tracked chunk counter in mod storage.
 local function bump_counter()
     check_mapgen_env("bump_counter")
     local counter = mod_storage:get_int("counter")
@@ -183,6 +203,7 @@ local function bump_counter()
     mod_storage:set_int("counter", counter)
 end
 
+-- Decrements the tracked chunk counter in mod storage (minimum 0).
 local function debump_counter()
     check_mapgen_env("debump_counter")
     local counter = mod_storage:get_int("counter")
@@ -193,11 +214,17 @@ local function debump_counter()
     mod_storage:set_int("counter", counter)
 end
 
+-- Returns the current count of tracked chunks.
+-- Returns: Integer count of tracked chunks.
 function ms.tracked_chunk_counter()
     check_mapgen_env("tracked_chunk_counter")
     return mod_storage:get_int("counter")
 end
 
+-- Adds and removes labels for the mapchunk at a given position.
+-- pos: Node position vector to identify the mapchunk.
+-- labels_to_add: Table of tag strings to add.
+-- labels_to_remove: Table of tag strings to remove.
 function ms.labels_to_position(pos, labels_to_add, labels_to_remove)
     check_mapgen_env("labels_to_position")
     local hash = ms.mapchunk_hash(pos)

@@ -42,6 +42,7 @@ local workers = {}
 local workers_by_name = {}
 local worker_running = false
 
+-- Clears the worker_running flag after a break, allowing the next worker cycle to run.
 local function worker_break()
     worker_running = false
 end
@@ -52,6 +53,9 @@ local vm_data = {
     light = {},
 }
 
+-- Processes a single mapchunk by running all workers assigned to it.
+-- Reads mapchunk data via VoxelManip, runs workers, updates labels, and writes changes back.
+-- chunk: table with 'hash' (mapchunk hash) and 'workers' (table of worker names)
 local function process_chunk(chunk)
     local hash = chunk.hash
     local pos_min, pos_max = ms.mapchunk_min_max(hash)
@@ -96,6 +100,8 @@ local min_working_time = math.huge
 local max_working_time = 0
 local worker_exec_times = {}
 
+-- Records worker execution time statistics for performance monitoring.
+-- time: The microsecond timestamp from when the worker started.
 local function record_worker_stats(time)
     local elapsed = (minetest.get_us_time() - time) / 1000
     --minetest.log("error", string.format("elapsed time: %g ms", elapsed))
@@ -112,7 +118,9 @@ local function record_worker_stats(time)
     end
 end
 
--- this gives you the moving average of working time
+-- Returns the moving average of worker execution times.
+-- Uses the last 100 execution times to compute the average.
+-- Returns 0 if no data is available yet.
 local function get_average_working_time()
     local sum = 0
     if #worker_exec_times == 0 then
@@ -124,7 +132,9 @@ local function get_average_working_time()
     return math.ceil(sum / #worker_exec_times)
 end
 
--- this gives you the moving median of working time
+-- Returns the moving median of worker execution times.
+-- Uses the last 100 execution times to compute the median.
+-- Returns 0 if no data is available yet.
 local function get_median_working_time()
     local times_copy = table.copy(worker_exec_times)
     table.sort(times_copy)
@@ -141,6 +151,10 @@ local function get_median_working_time()
     return math.ceil(median)
 end
 
+-- Main worker loop that processes one chunk from the work queue per call.
+-- Called as a globalstep callback. Handles worker registration changes,
+-- processes one chunk at a time, and schedules the next run.
+-- dtime: Delta time since last call (unused but required by globalstep).
 local function run_workers(dtime)
     if worker_running then
         return
@@ -171,6 +185,10 @@ local function run_workers(dtime)
     worker_running = false
 end
 
+-- Adds a mapchunk to the work queue for a specific worker.
+-- If the chunk is already in the queue, adds the worker to its worker list.
+-- hash: Mapchunk hash to add to the work queue.
+-- worker_name: Name of the worker that should process this chunk.
 local function add_to_work_queue(hash, worker_name)
     local exists = false
     for _, chunk in pairs(work_queue) do
@@ -188,6 +206,11 @@ local function add_to_work_queue(hash, worker_name)
     end
 end
 
+-- Checks if labels have "baked" (aged) beyond a certain time threshold.
+-- Used to determine if enough time has passed since label creation/modification.
+-- labels: Table of label objects.
+-- time: Time threshold in game seconds.
+-- Returns true if at least one label has elapsed time greater than the threshold.
 local function labels_baked(labels, time)
     for _, label in pairs(labels) do
         if label:elapsed_time() > time then
@@ -197,6 +220,11 @@ local function labels_baked(labels, time)
     return false
 end
 
+-- Determines if a mapchunk is suitable for a specific worker.
+-- Checks label requirements (needed_labels, has_one_of) and timing (work_every).
+-- hash: Mapchunk hash to check.
+-- worker: Worker object to check against.
+-- Returns true if the worker should process this mapchunk.
 local function good_for_worker(hash, worker)
     local work_every = worker.work_every
     local ls = ms.label_store.new(hash)
@@ -215,7 +243,9 @@ local function good_for_worker(hash, worker)
     return true
 end
 
--- Part of the tracker
+-- Checks if a mapchunk should be processed by any workers and adds it to the work queue.
+-- Part of the player tracker system.
+-- hash: Mapchunk hash to check and potentially add to work queue.
 local function save_and_work(hash)
     for _, worker in pairs(workers) do
         if good_for_worker(hash, worker) then
@@ -224,8 +254,9 @@ local function save_and_work(hash)
     end
 end
 
--- Player tracker - responsible for saving mapchunks
--- and adding chunks into the work queue.
+-- Tracks player positions and adds nearby loaded mapchunks to the work queue.
+-- Runs periodically to discover mapchunks in players' neighborhoods.
+-- Checks if mapchunks are loaded before adding them to the work queue.
 local function player_tracker()
     local players = minetest.get_connected_players()
     for _, player in pairs(players) do
@@ -247,6 +278,8 @@ end
 local tracker_timer = 6
 local tracker_interval = 10
 
+-- Globalstep callback that runs the player tracker at regular intervals.
+-- dtime: Delta time since last call.
 local function player_tracker_loop(dtime)
     tracker_timer = tracker_timer + dtime
     if tracker_timer > tracker_interval then

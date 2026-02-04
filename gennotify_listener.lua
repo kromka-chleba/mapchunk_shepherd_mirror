@@ -19,8 +19,11 @@
 -- Globals
 local ms = mapchunk_shepherd
 
+-- Register for custom gennotify objects from mapgen environment.
 minetest.set_gen_notify({custom=true}, nil, {"mapchunk_shepherd:labeler"})
 
+-- Callback that processes label changes sent from mapgen environment.
+-- Receives staged labels via gennotify and saves them to mod storage.
 minetest.register_on_generated(
     function(minp, maxp, blockseed)
         local label_stores = {}

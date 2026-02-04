@@ -69,6 +69,12 @@ end
 
 local biome_finders = {}
 
+-- Creates a biome finder function that labels mapchunks during mapgen.
+-- Detects specific biomes in generated mapchunks and adds labels.
+-- args: Configuration table:
+--   - biome_list (table): List of biome names to detect
+--   - add_labels (table): Labels to add when biome is found
+--   - remove_labels (table): Labels to remove when biome is found
 function ms.create_biome_finder(args)
     local args = table.copy(args)
     local biome_list = args.biome_list
@@ -93,8 +99,15 @@ function ms.create_biome_finder(args)
     )
 end
 
+-- Main mapgen watchdog instance for coordinating scanners.
 local main_watchdog = mapgen_watchdog.new()
 
+-- Mapgen scanner callback that runs all registered scanners on generated mapchunks.
+-- Called automatically by Minetest during mapgen.
+-- vm: VoxelManip object for the generated area.
+-- minp: Minimum position of the generated area.
+-- maxp: Maximum position of the generated area.
+-- blockseed: Seed for this mapblock.
 local function mapgen_scanner(vm, minp, maxp, blockseed)
     local mapgen_args = {vm, minp, maxp, blockseed}
     local t1 = minetest.get_us_time()

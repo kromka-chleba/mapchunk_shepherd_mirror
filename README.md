@@ -1,7 +1,7 @@
-Exile mod: Mapchunk shepherd
-=============================
+Mapchunk Shepherd
+=================
 
-Tracks mapchunks players visited and stores info about them.
+A Minetest mod for tracking, labeling, and modifying mapchunks based on player movement and mapgen events.
 
 Authors of source code
 ----------------------
@@ -10,17 +10,19 @@ Jan Wielkiewicz (GPLv3+)
 ## General idea
 
 The Mapchunk Shepherd is a system responsible for:
-* Tracking player movement to obtain information about the map
-* Assigning labels to pieces of the map
-* Modifying/updating specific pieces of the map
+* Tracking player movement to discover and label areas of the map
+* Assigning labels to mapchunks based on their content or properties
+* Dynamically modifying mapchunks using workers
 
 ## Features
-* Uses the Voxel Manipulator so should be pretty fast
-* Dynamic modification of the map
-* Workers and scanners can be unregistered and registered on the fly (unlike ABMs and LBMs)
-* Scan once, modify multiple times
-* Unlike ABMs, it can modify mapchunks far away from the player because it uses "loaded" chunks
-* Unlike ABMs and LBMs, processes/scans only specific chunks (with specific labels)
+* Uses Voxel Manipulator for efficient node operations
+* Dynamic modification of the map based on labels
+* Workers can be registered and unregistered on the fly (unlike ABMs and LBMs)
+* Label once, modify multiple times using the same label data
+* Can process mapchunks that are loaded but far from players (unlike ABMs)
+* Only processes specific mapchunks with matching labels (more targeted than ABMs and LBMs)
+* Supports mapgen-time labeling via decoration/biome detection
+* Database versioning and compatibility checking
 
 ## Terminology
 * Mapblock:
@@ -41,54 +43,123 @@ Apparently Minetest does it this way so players spawn at the center of a mapchun
 
 * Player tracker:
 The facility responsible for tracking each player and loading neighboring mapchunks into the system.
+The tracker runs periodically (every 10 seconds by default) and checks loaded mapchunks in the player's neighborhood,
+adding them to the work queue if they match any registered worker's requirements.
 
 * Neighborhood:
-A cuboid space around a player consisting of whole mapchunks including the mapchunk each player is in.
+A cuboid space around a player consisting of whole mapchunks including the mapchunk the player is in.
+The neighborhood size is determined by the viewing_range setting multiplied by 2.
 
 * Label:
-A string assigned to a mapchunk with a corresponding binary ID.
-It describes the contents of the chunk, e.g. "has_trees" or "has_diamonds".
-It is stored in Minetest's mod storage, saved on the disk separately for each world.
-Labels are stored in a string using minetest.serialize so the number of possible labels is virtually unlimited.
+A string tag combined with a timestamp assigned to a mapchunk.
+It describes the contents or properties of the chunk, e.g. "has_trees" or "worker_failed".
+Labels are stored in Minetest's mod storage using minetest.serialize, with each label containing
+a tag (string) and a timestamp (integer) representing the game time when it was created/modified.
+The number of possible labels per mapchunk is virtually unlimited.
+Labels must be registered using ms.tag.register() before use.
 
 * Scanner:
-A Voxel Manipulator that scans a mapchunk for certain nodes and assigns or removes labels accordingly.
-For example a scanner could search for trees and assign the "has_trees" label.
+Not currently implemented in the mod. Previously referred to Voxel Manipulator-based mapchunk scanners.
+Use mapgen scanners (biome/decoration finders) or workers for mapchunk analysis instead.
 
-* Mapgen "Scanner" (Deco Finder):
-Finds mapchunks that contain given mapgen decorations and adds labels to the mapchunks.
-It uses minetest.register_on_generated and gennotify so labels are added during mapchunk generation.
-One good use case is for example finding surface chunks by finding surface-only decorations.
-Doesn't use Voxel Manip and is more efficient for finding decorations than a scanner.
+* Mapgen Scanner (Biome/Decoration Finder):
+Finds mapchunks that contain given mapgen biomes or decorations and adds labels to the mapchunks.
+Uses minetest.register_on_generated to label mapchunks during generation.
+More efficient than post-generation scanning because it uses mapgen data directly.
+Use cases include finding surface chunks by detecting surface-only decorations or specific biomes.
 
 * Worker:
-A Voxel Manipulator that modifies previously scanned mapchunks.
-For example it can replace trees on mapchunks having the "has_trees" label with cotton candy trees and replace the label with "has_candy_trees".
+A Voxel Manipulator-based function that modifies mapchunks based on their labels.
+Workers are registered with ms.worker.new() and can specify:
+  - needed_labels: labels that must all be present
+  - has_one_of: at least one of these labels must be present
+  - work_every: time interval (in game seconds) between re-processing the same chunk
+  - rework_labels: labels to check timestamps for when determining if work_every has elapsed
+  - chance: probability of replacement (0.0 to 1.0)
+  - catch_up: whether to increase chance based on missed work cycles
+For example, it can replace trees on mapchunks having the "has_trees" label with cotton candy trees
+and replace the label with "has_candy_trees".
 
 * Tracked mapchunk:
-A mapchunk that was found in the neighborhood of a player and had been assigned the "chunk_tracked" label.
+A mapchunk that was discovered in the neighborhood of a player and is being monitored by the shepherd system.
+Tracking happens automatically as players explore the world.
 
 * Mapchunk hash:
-Is the hashed position of the minimal position of a mapchunk that serves as the mapchunk's ID.
-It is obtained using minetest.hash_node_position(pos_min).
+Is the encoded position of the origin (minimal corner) of a mapchunk that serves as the mapchunk's ID.
+It is obtained using ms.hash(coords) which encodes the position as a base64 string.
+This format is compatible with mod storage (unlike raw minetest.hash_node_position which had issues).
 
-* Scan queue:
-Is the list of mapchunks (mapchunk hashes) that wait for being scanned.
-The player tracker adds tracked mapchunks without the "scanned" label into the queue.
-If scanning was successful, the hash is removed from the queue and the mapchunk is assigned the "scanned" label.
+## API Overview
+
+### Registering Tags
+Tags must be registered before use:
+```lua
+mapchunk_shepherd.tag.register("my_custom_tag")
+```
+
+### Creating Workers
+Workers are the primary way to modify mapchunks:
+```lua
+local worker = mapchunk_shepherd.worker.new({
+    name = "my_worker",
+    fun = my_worker_function,
+    needed_labels = {"label1", "label2"},  -- All must be present
+    has_one_of = {"label3", "label4"},      -- At least one must be present
+    work_every = 3600,                      -- Re-run every hour (game time)
+    rework_labels = {"label1"},             -- Check these labels for timing
+    chance = 0.5,                           -- 50% replacement chance
+})
+worker:register()
+```
+
+### Creating Biome/Decoration Finders
+To label mapchunks during generation:
+```lua
+mapchunk_shepherd.create_biome_finder({
+    biome_list = {"grassland", "forest"},
+    add_labels = {"has_grass_biome"},
+})
+
+mapchunk_shepherd.create_deco_finder({
+    deco_list = {
+        {name = "default:grass_1", schematic = nil},
+    },
+    add_labels = {"has_surface_grass"},
+})
+```
+
+### Helper Functions for Workers
+The mod provides several helper functions for creating common worker patterns:
+* `ms.create_simple_replacer(args)` - Replace nodes A with nodes B
+* `ms.create_param2_aware_replacer(args)` - Replace based on param2 values
+* `ms.create_light_aware_replacer(args)` - Replace based on light levels
+* `ms.create_neighbor_aware_replacer(args)` - Replace based on neighboring nodes
+* `ms.create_light_aware_top_placer(args)` - Place nodes on top of other nodes
+
+### Chat Commands
+* `/shepherd_status` - Shows shepherd statistics (tracked chunks, work queue, worker timing)
+* `/chunk_labels` - Shows labels of the mapchunk where the player is standing
+
+## Database and Compatibility
+
+The mod uses a versioned database format stored in mod storage. It includes:
+* Database version tracking for future upgrades
+* Chunksize validation to prevent data corruption
+* Automatic initialization for new worlds
+
+**Important:** Changing the chunksize setting after world creation will prevent the mod from starting
+to avoid data corruption. You must delete the mod storage or restore the original chunksize.
 
 * Work queue:
-Is the list of mapchunks (mapchunk hashes) that wait for being processed.
-The player tracker adds scanned chunks (having "chunk_tracked" and "scanned" labels) into the work queue.
-Extra "Needed labels" can be defined to restrict workers to only specific chunks and avoid processing them twice.
+Is the list of mapchunks (mapchunk hashes) that wait for being processed by workers.
+The player tracker checks neighboring loaded mapchunks and adds them to the work queue if they match worker requirements.
+Workers can define "needed_labels" and "has_one_of" to filter which mapchunks they process.
+Workers can also define "work_every" to specify how often (in game time) they should re-process the same chunk.
 For example a worker replacing spring soil with winter soil will only pick up chunks having the "has_spring_soil"
 label and replace the label with "has_winter_soil".
-Workers replace nodes on these mapchunks and assign specific labels, then the hash is removed from the queue.
+Workers replace nodes on these mapchunks and assign/remove specific labels.
 
-* Failed chunk:
-Sometimes a scanner or a worker can fail.
-This usually happens when the loaded mapchunk contains "ignore" nodes.
-If a scanner or worker fails, "scanner_failed" or "worker_failed" labels are assigned respectively.
-Failed chunks are then again added into scan and work queues by the player tracker.
-If a chunk fails often, it is temporarily blacklisted (removed from the queue) and picked up later after some time.
-This prevents the system from choking on failed chunks which usually fix themselves spontaneously.
+* Failed worker:
+Sometimes a worker can fail, usually when the mapchunk contains "ignore" nodes.
+If a worker fails, it returns a "worker_failed" label which is assigned to the mapchunk.
+The player tracker will retry failed chunks when they become loaded again.
