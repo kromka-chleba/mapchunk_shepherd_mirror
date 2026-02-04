@@ -39,20 +39,28 @@ end
 
 placeholder_id_pairs[ignore_id] = false
 
+-- Returns a copy of the placeholder ID pairs table for use in workers.
+-- This table is used as a template for node ID lookups in replacement operations.
 function ms.placeholder_id_pairs()
     return table.copy(placeholder_id_pairs)
 end
 
+-- Returns a copy of the placeholder ID finder pairs table for use in workers.
+-- This table is used as a template for node ID searches in finder operations.
 function ms.placeholder_id_finder_pairs()
     return table.copy(placeholder_id_finder_pairs)
 end
 
--- fun needs to be a function fun(pos_min, pos_max)
+-- fun needs to be a function fun(pos_min, pos_max, vm_data, chance)
 -- where pos_min is minimal position in a mapchunk,
 -- pos_max is maximal position in a mapchunk,
--- fun() needs to return two variables: labels_added,
--- labels_removed; labels to remove or add to a mapchunk
+-- vm_data is a table containing {nodes, param2, light} arrays,
+-- chance is a probability value (0.0 to 1.0) for probabilistic replacements.
+-- fun() needs to return: labels_to_add, labels_to_remove, light_changed, param2_changed
 
+-- Checks if a worker with the given name is already registered.
+-- name: Worker name to check.
+-- Returns true if the worker is registered.
 local function is_worker_registered(name)
     for i = 1, #ms.workers do
         if ms.workers[i] and ms.workers[i].name == name then
@@ -62,6 +70,8 @@ local function is_worker_registered(name)
     return false
 end
 
+-- Removes a worker by name from the registered workers list.
+-- name: Name of the worker to remove.
 function ms.remove_worker(name)
     for i = 1, #ms.workers do
         if ms.workers[i] and ms.workers[i].name == name then
@@ -76,6 +86,19 @@ ms.worker = {}
 local worker = ms.worker
 worker.__index = worker
 
+-- Creates a new worker object.
+-- args: Table with worker configuration:
+--   - name (string): Unique worker name
+--   - fun (function): Worker function(pos_min, pos_max, vm_data, chance)
+--   - needed_labels (table): All labels that must be present (optional)
+--   - has_one_of (table): At least one of these labels must be present (optional)
+--   - rework_labels (table): Labels to check for timing (optional)
+--   - work_every (number): Time in game seconds between re-runs (optional)
+--   - chance (number): Probability of replacement 0.0-1.0 (optional)
+--   - catch_up (boolean): Whether to increase chance for missed cycles (optional)
+--   - catch_up_function (function): Custom catch-up logic (optional)
+--   - afterworker (function): Function to run after worker completes (optional)
+-- Returns a worker object or nil if fun is not a function.
 function worker.new(args)
     local w = {}
     local args = table.copy(args)
@@ -97,6 +120,8 @@ function worker.new(args)
     return setmetatable(w, worker)
 end
 
+-- Registers this worker with the shepherd system.
+-- If already registered, marks workers as changed to trigger reload.
 function worker:register()
     if is_worker_registered(self.name) then
         ms.workers_changed = true
@@ -106,11 +131,17 @@ function worker:register()
     ms.workers_by_name[self.name] = self
 end
 
+-- Unregisters this worker from the shepherd system.
 function worker:unregister()
     ms.remove_worker(self.name)
 end
 
--- function worker:worker_function(pos_min, pos_max, vm_data)
+-- Runs the worker function on a mapchunk.
+-- If catch_up is enabled, adjusts the chance based on missed work cycles.
+-- pos_min: Minimum position of the mapchunk.
+-- pos_max: Maximum position of the mapchunk.
+-- vm_data: VoxelManip data table {nodes, param2, light}.
+-- Returns: labels_to_add, labels_to_remove, light_changed, param2_changed.
 function worker:run(pos_min, pos_max, vm_data)
     if self.catch_up then
         local hash = ms.mapchunk_hash(pos_min)
@@ -120,6 +151,10 @@ function worker:run(pos_min, pos_max, vm_data)
     return self.fun(pos_min, pos_max, vm_data, self.chance)
 end
 
+-- Basic catch-up logic that increases chance based on missed work cycles.
+-- hash: Mapchunk hash.
+-- chance: Base chance value.
+-- Returns: Adjusted chance value based on elapsed time since last work.
 function worker:basic_catch_up(hash, chance)
     local labels = ms.get_labels(hash)
     local elapsed = ms.labels.oldest_elapsed_time(labels, self.rework_labels)
@@ -131,20 +166,36 @@ function worker:basic_catch_up(hash, chance)
     return new_chance
 end
 
--- function worker:catch_up_function()
-function worker:run_catch_up()
+-- Runs the catch-up function to adjust chance for missed work cycles.
+-- Uses custom catch_up_function if provided, otherwise uses basic_catch_up.
+-- hash: Mapchunk hash.
+-- chance: Base chance value.
+-- Returns: Adjusted chance value.
+function worker:run_catch_up(hash, chance)
     if self.catch_up_function then
         return self.catch_up_function(hash, chance)
     end
     return self:basic_catch_up(hash, chance)
 end
 
+-- Runs the afterworker callback if defined.
+-- Called after the worker has completed processing a mapchunk.
+-- hash: Mapchunk hash that was processed.
 function worker:run_afterworker(hash)
     if self.afterworker then
         self.afterworker(hash)
     end
 end
 
+-- Creates a simple node replacer worker function.
+-- Replaces specified nodes with other nodes, checking for ignore nodes.
+-- args: Table with configuration:
+--   - find_replace_pairs (table): Map of node_name -> replacement_name
+--   - add_labels (table): Labels to add if nodes were found
+--   - remove_labels (table): Labels to remove if nodes were found
+--   - not_found_labels (table): Labels to add if no nodes were found
+--   - not_found_remove (table): Labels to remove if no nodes were found
+-- Returns: A worker function(pos_min, pos_max, vm_data, chance).
 function ms.create_simple_replacer(args)
     local args = table.copy(args)
     local find_replace_pairs = args.find_replace_pairs
@@ -182,6 +233,12 @@ function ms.create_simple_replacer(args)
     end
 end
 
+-- Creates a param2-aware node replacer worker function.
+-- Replaces nodes based on their param2 values (e.g., for rotation-dependent replacements).
+-- args: Same as create_simple_replacer, plus:
+--   - lower_than (number): Only replace if param2 < this value (default: 257)
+--   - higher_than (number): Only replace if param2 > this value (default: -1)
+-- Returns: A worker function(pos_min, pos_max, vm_data, chance).
 function ms.create_param2_aware_replacer(args)
     local args = table.copy(args)
     local find_replace_pairs = args.find_replace_pairs
@@ -227,6 +284,12 @@ function ms.create_param2_aware_replacer(args)
     end
 end
 
+-- Creates a light-aware node replacer worker function.
+-- Replaces nodes based on the light level of the node above them.
+-- args: Same as create_simple_replacer, plus:
+--   - lower_than (number): Only replace if light < this value (default: 16)
+--   - higher_than (number): Only replace if light > this value (default: -1)
+-- Returns: A worker function(pos_min, pos_max, vm_data, chance).
 function ms.create_light_aware_replacer(args)
     local args = table.copy(args)
     local find_replace_pairs = args.find_replace_pairs
@@ -281,7 +344,15 @@ function ms.create_light_aware_replacer(args)
     end
 end
 
--- Places nodes on top of a node if light above the node is good
+-- Creates a worker function that places nodes on top of specified nodes based on light.
+-- Finds specific nodes and places other nodes on top if light conditions are met.
+-- args: Configuration table:
+--   - to_find (table): Node names to search for
+--   - find_replace_pairs (table): Map of air/node_name -> placement_node_name
+--   - add_labels, remove_labels, not_found_labels, not_found_remove (tables): Label management
+--   - lower_than (number): Only place if light < this value (default: 16)
+--   - higher_than (number): Only place if light > this value (default: -1)
+-- Returns: A worker function(pos_min, pos_max, vm_data, chance).
 function ms.create_light_aware_top_placer(args)
     local args = table.copy(args)
     -- Labels
@@ -344,8 +415,11 @@ function ms.create_light_aware_top_placer(args)
     end
 end
 
--- ideally logic from this file minetest/src/mapgen/mg_decoration.cpp
--- should be replicated in this function but I'm too lazy to do that
+-- Helper function to calculate decoration corners based on size and placement flags.
+-- Used internally by neighbor_aware_replacer.
+-- deco: Decoration definition table with flags and offsets.
+-- size: Vector representing decoration size.
+-- Returns: Table of corner position vectors.
 local function get_corners(deco, size)
     local corners = {}
     for z = 0, size.z, size.z do
@@ -383,6 +457,11 @@ local function get_corners(deco, size)
     return corners_with_offset
 end
 
+-- Creates a neighbor-aware node replacer worker function.
+-- Replaces nodes only if they have specific neighboring nodes.
+-- args: Same as create_simple_replacer, plus:
+--   - neighbors (table): Node names that must be adjacent for replacement to occur
+-- Returns: A worker function(pos_min, pos_max, vm_data, chance).
 function ms.create_neighbor_aware_replacer(args)
     local args = table.copy(args)
     local find_replace_pairs = args.find_replace_pairs
@@ -435,6 +514,13 @@ function ms.create_neighbor_aware_replacer(args)
     end
 end
 
+-- Creates a decoration finder that labels mapchunks during mapgen.
+-- Registers callbacks to detect decorations and add labels to mapchunks.
+-- args: Configuration table:
+--   - deco_list (table): List of {name=decoration_name, schematic=path_or_nil}
+--   - add_labels (table): Labels to add to mapchunks with these decorations
+--   - remove_labels (table): Labels to remove from mapchunks with these decorations
+-- Note: This function registers callbacks and doesn't return anything.
 function ms.create_deco_finder(args)
     local args = table.copy(args)
     local deco_list = args.deco_list
