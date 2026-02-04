@@ -18,7 +18,7 @@
 
 -- Globals
 mapchunk_shepherd = {}
-local ms = mapchunk_shepher
+local ms = mapchunk_shepherd
 local mod_name = core.get_current_modname()
 local mod_path = core.get_modpath(mod_name)
 
