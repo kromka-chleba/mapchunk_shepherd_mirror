@@ -201,16 +201,31 @@ function ms.ensure_compatibility()
     
     -- Check if chunksize changed (only relevant for initialized databases)
     if ms.chunksize_changed() then
-        core.log("error", "Mapchunk Shepherd: Chunksize changed from "..
-                     ms.database.chunksize().." to "..sizes.mapchunk.in_mapblocks..".")
-        core.log("error", "Mapchunk Shepherd: Changing chunksize invalidates all stored mapchunk data.")
-        core.log("error", "Mapchunk Shepherd: Stored labels use mapchunk hashes based on old chunksize,")
-        core.log("error", "Mapchunk Shepherd: which would cause data corruption and incorrect behavior.")
-        core.log("error", "Mapchunk Shepherd: To use the new chunksize, you must:")
-        core.log("error", "Mapchunk Shepherd:   1. Delete the mod storage for this mod (typically <worlddir>/mod_storage_<modname>)")
-        core.log("error", "Mapchunk Shepherd:   2. Or restore the old chunksize setting")
-        core.log("error", "Mapchunk Shepherd: Refusing to start.")
-        return false
+        local stored_chunksize = ms.database.chunksize()
+        local stored_version = ms.database.stored_version()
+        
+        -- Special case: migrate from old format where chunksize was stored in nodes (80)
+        -- to new format where chunksize is stored in mapblocks (5)
+        -- This only applies to databases with version < 1 and stored_chunksize of 80
+        if stored_chunksize == 80 and stored_version < 1 then
+            core.log("action", "Mapchunk Shepherd: Detected legacy chunksize format (80 nodes).")
+            core.log("action", "Mapchunk Shepherd: Migrating to new format with chunksize "..
+                         sizes.mapchunk.in_mapblocks.." mapblocks.")
+            ms.database.update_chunksize()
+            -- Continue with normal initialization/conversion flow
+        else
+            -- Regular chunksize change error
+            core.log("error", "Mapchunk Shepherd: Chunksize changed from "..
+                         stored_chunksize.." to "..sizes.mapchunk.in_mapblocks..".")
+            core.log("error", "Mapchunk Shepherd: Changing chunksize invalidates all stored mapchunk data.")
+            core.log("error", "Mapchunk Shepherd: Stored labels use mapchunk hashes based on old chunksize,")
+            core.log("error", "Mapchunk Shepherd: which would cause data corruption and incorrect behavior.")
+            core.log("error", "Mapchunk Shepherd: To use the new chunksize, you must:")
+            core.log("error", "Mapchunk Shepherd:   1. Delete the mod storage for this mod (typically <worlddir>/mod_storage_<modname>)")
+            core.log("error", "Mapchunk Shepherd:   2. Or restore the old chunksize setting")
+            core.log("error", "Mapchunk Shepherd: Refusing to start.")
+            return false
+        end
     end
     
     -- Initialize fresh database if needed
