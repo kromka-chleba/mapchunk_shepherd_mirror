@@ -16,6 +16,19 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 --]]
 
+--[[
+    This module defines size constants and conversions for mapchunks, mapblocks, and nodes.
+    All size calculations are based on the mapgen chunksize setting.
+    
+    Key concepts:
+    - Node: Single block position in the world
+    - Mapblock: 16x16x16 nodes (fixed size)
+    - Mapchunk: NxNxN mapblocks where N is the chunksize setting (default 5)
+    - Mapchunk offset: Shifts the mapchunk grid so players spawn at chunk centers
+    
+    Returns a table with size definitions used throughout the mod.
+--]]
+
 local sizes = {}
 
 -- in mapblocks
