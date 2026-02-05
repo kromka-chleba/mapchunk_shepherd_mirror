@@ -28,8 +28,7 @@ The Mapblock Shepherd is a system responsible for:
 A 16x16x16 cubic piece of the map. This is the primary unit of processing.
 
 * Label:
-A string assigned to a mapblock with a corresponding binary ID.
-It describes the contents of the block, e.g. "has_trees" or "has_diamonds".
+A string assigned to a mapblock that describes its contents, e.g. "has_trees" or "has_diamonds".
 It is stored in Minetest's mod storage, saved on the disk separately for each world.
 Labels are stored in a string using minetest.serialize so the number of possible labels is virtually unlimited.
 
@@ -57,12 +56,24 @@ Loaded blocks are processed after active blocks.
 
 * Mapblock hash:
 Is the hashed position of the mapblock that serves as the mapblock's ID.
-It is obtained using a custom encoding of the block coordinates.
+Uses Luanti's standard hash format from `core.hash_node_position()`.
 
-* Work queue:
-Is the list of mapblocks (mapblock hashes) that wait for being processed.
-The block callbacks add blocks into the work queue based on their loaded/active state.
-Extra "Needed labels" can be defined to restrict workers to only specific blocks and avoid processing them twice.
-For example a worker replacing spring soil with winter soil will only pick up blocks having the "has_spring_soil"
-label and replace the label with "has_winter_soil".
-Workers replace nodes on these mapblocks and assign specific labels, then the hash is removed from the queue.
+* Block Queue:
+A queue of mapblocks waiting to be processed by workers. Blocks are added to the queue via Luanti's block callbacks:
+  - `core.register_on_block_loaded()` - adds blocks when they're loaded from disk or generated
+  - `core.register_on_block_activated()` - marks blocks as active when within active_block_range of a player
+  - `core.register_on_block_deactivated()` - demotes blocks from active status
+  - `core.register_on_block_unloaded()` - removes blocks from the queue when unloaded from memory
+
+The queue maintains two priority levels: active blocks (close to players) are processed before loaded blocks (in memory but distant).
+
+* Block Processing:
+The main processing loop runs every 1 second and processes up to 5 blocks per tick. The process:
+  1. Sorts the block queue so active blocks are processed first (they're visible to players)
+  2. For each block in the queue (up to the limit):
+     - Verifies the block is still loaded using `core.loaded_blocks`
+     - Runs eligible workers on the block (based on label requirements)
+     - Removes the block from the queue after processing
+
+Workers can define "needed labels" to only process specific blocks. For example, a worker replacing spring soil with 
+winter soil will only process blocks with the "has_spring_soil" label and will replace the label with "has_winter_soil".
