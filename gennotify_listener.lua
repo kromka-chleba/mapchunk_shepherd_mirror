@@ -19,12 +19,12 @@
 -- Globals
 local ms = mapchunk_shepherd
 
-minetest.set_gen_notify({custom=true}, nil, {"mapchunk_shepherd:labeler"})
+core.set_gen_notify({custom=true}, nil, {"mapchunk_shepherd:labeler"})
 
-minetest.register_on_generated(
+core.register_on_generated(
     function(minp, maxp, blockseed)
         local label_stores = {}
-		local gennotify = minetest.get_mapgen_object("gennotify")
+		local gennotify = core.get_mapgen_object("gennotify")
 		local changed = gennotify.custom["mapchunk_shepherd:labeler"] or {}
 		for _, c in ipairs(changed) do
             local hash, staged_labels = unpack(c)

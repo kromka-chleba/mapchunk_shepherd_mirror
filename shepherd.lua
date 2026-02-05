@@ -22,10 +22,10 @@ local S = mapchunk_shepherd.S
 -- Globals
 local ms = mapchunk_shepherd
 
-local mod_path = minetest.get_modpath('mapchunk_shepherd')
+local mod_path = core.get_modpath('mapchunk_shepherd')
 local sizes = dofile(mod_path.."/sizes.lua")
 
-local mod_storage = minetest.get_mod_storage()
+local mod_storage = core.get_mod_storage()
 local old_chunksize = mod_storage:get_int("chunksize")
 
 local workers = {}
@@ -36,8 +36,8 @@ local max_working_time = 0
 local worker_exec_times = {}
 
 local function record_worker_stats(time)
-    local elapsed = (minetest.get_us_time() - time) / 1000
-    --minetest.log("error", string.format("elapsed time: %g ms", elapsed))
+    local elapsed = (core.get_us_time() - time) / 1000
+    --core.log("error", string.format("elapsed time: %g ms", elapsed))
     if elapsed < min_working_time then
         min_working_time = elapsed
     end
@@ -144,7 +144,7 @@ local function init_voxel_manip(hash)
 end
 
 local function run_workers(hash)
-    local t1 = minetest.get_us_time()
+    local t1 = core.get_us_time()
     local vm
     for _, worker in pairs(workers) do
         if good_for_worker(hash, worker) then
@@ -173,7 +173,7 @@ local blocks_pending = {}
 
 -- Add a block to the processing queue
 local function queue_block(blockpos)
-    local hash = minetest.hash_node_position(blockpos)
+    local hash = core.hash_node_position(blockpos)
     local our_hash = ms.hash(blockpos)
     if not blocks_pending[hash] then
         blocks_pending[hash] = our_hash
@@ -183,7 +183,7 @@ end
 
 -- Mark block as active (should be processed first)
 local function mark_block_active(blockpos)
-    local hash = minetest.hash_node_position(blockpos)
+    local hash = core.hash_node_position(blockpos)
     local our_hash = ms.hash(blockpos)
     blocks_pending[hash] = our_hash
     -- Find existing entry or add new one
@@ -202,7 +202,7 @@ end
 
 -- Remove block from processing queue
 local function unqueue_block(blockpos)
-    local hash = minetest.hash_node_position(blockpos)
+    local hash = core.hash_node_position(blockpos)
     blocks_pending[hash] = nil
     for i = #blocks_to_process, 1, -1 do
         if blocks_to_process[i].hash == hash then
@@ -216,20 +216,20 @@ end
 ---------------------------------------------------------------------
 
 -- Called when a mapblock is loaded from disk or generated
-minetest.register_on_block_loaded(function(blockpos)
+core.register_on_block_loaded(function(blockpos)
     queue_block(blockpos)
 end)
 
 -- Called when a mapblock becomes active (within active_block_range of player)
-minetest.register_on_block_activated(function(blockpos)
+core.register_on_block_activated(function(blockpos)
     mark_block_active(blockpos)
 end)
 
 -- Called when mapblocks are deactivated
-minetest.register_on_block_deactivated(function(blockpos_list)
+core.register_on_block_deactivated(function(blockpos_list)
     for _, blockpos in ipairs(blockpos_list) do
         -- Keep in queue but mark as not active
-        local hash = minetest.hash_node_position(blockpos)
+        local hash = core.hash_node_position(blockpos)
         for _, entry in ipairs(blocks_to_process) do
             if entry.hash == hash then
                 entry.is_active = false
@@ -240,7 +240,7 @@ minetest.register_on_block_deactivated(function(blockpos_list)
 end)
 
 -- Called when mapblocks are completely unloaded from memory
-minetest.register_on_block_unloaded(function(blockpos_list)
+core.register_on_block_unloaded(function(blockpos_list)
     for _, blockpos in ipairs(blockpos_list) do
         unqueue_block(blockpos)
     end
@@ -257,7 +257,7 @@ local function main_loop()
     refresh_workers()
     
     if #blocks_to_process == 0 then
-        minetest.after(shepherd_interval, main_loop)
+        core.after(shepherd_interval, main_loop)
         return
     end
     
@@ -291,7 +291,7 @@ local function main_loop()
         table.remove(blocks_to_process, i)
     end
     
-    minetest.after(shepherd_interval, main_loop)
+    core.after(shepherd_interval, main_loop)
 end
 
 ------------------------------------------------------------------
@@ -302,7 +302,7 @@ end
 -- chunksize did not change.
 if ms.ensure_compatibility() then
     -- Start the main processing loop
-    minetest.after(shepherd_interval, main_loop)
+    core.after(shepherd_interval, main_loop)
 end
 
 ------------------------------------------------------------------
@@ -316,7 +316,7 @@ core.register_privilege(
         give_to_admin = true,
 })
 
-minetest.register_chatcommand(
+core.register_chatcommand(
     "shepherd_status", {
         description = S("Prints status of the Mapblock Shepherd."),
         privs = {},
@@ -325,7 +325,7 @@ minetest.register_chatcommand(
             for _, worker in pairs(workers) do
                 table.insert(worker_names, worker.name)
             end
-            worker_names = minetest.serialize(worker_names)
+            worker_names = core.serialize(worker_names)
             worker_names = worker_names:gsub("return ", "")
             local nr_of_chunks = ms.tracked_chunk_counter()
             local tracked_chunks_status = S("Tracked blocks: ")..nr_of_chunks
@@ -340,12 +340,12 @@ minetest.register_chatcommand(
         end,
 })
 
-minetest.register_chatcommand(
+core.register_chatcommand(
     "mapblock_labels", {
         description = S("Prints labels of the mapblock where the player stands."),
         privs = {},
         func = function(name, param)
-            local player = minetest.get_player_by_name(name)
+            local player = core.get_player_by_name(name)
             local pos = player:get_pos()
             local hash = ms.mapblock_hash(pos)
             local ls = ms.label_store.new(hash)
@@ -361,13 +361,13 @@ minetest.register_chatcommand(
         end,
 })
 
-minetest.register_chatcommand(
+core.register_chatcommand(
     "add_labels", {
         description = S("Adds labels to the mapblock where the player stands."),
         privs = {mapchunk_shepherd = true},
         func = function(name, str)
             local labels = str:gsub(" ", ""):split(",")
-            local player = minetest.get_player_by_name(name)
+            local player = core.get_player_by_name(name)
             local pos = player:get_pos()
             local hash = ms.mapblock_hash(pos)
             local old_coords = ms.unhash(hash)
@@ -380,13 +380,13 @@ minetest.register_chatcommand(
         end,
 })
 
-minetest.register_chatcommand(
+core.register_chatcommand(
     "remove_labels", {
         description = S("Removes labels from the mapblock where the player stands."),
         privs = {mapchunk_shepherd = true},
         func = function(name, str)
             local labels = str:gsub(" ", ""):split(",")
-            local player = minetest.get_player_by_name(name)
+            local player = core.get_player_by_name(name)
             local pos = player:get_pos()
             local hash = ms.mapblock_hash(pos)
             local ls = ms.label_store.new(hash)

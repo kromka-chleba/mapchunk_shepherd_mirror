@@ -25,7 +25,7 @@ local ms = mapchunk_shepherd
     that describes contents or a property of the mapchunk and a
     timestamp that describes the time of last modification stated in
     seconds since the world was created as returned by
-    'minetest.get_gametime()'. Other types of metadata could be
+    'core.get_gametime()'. Other types of metadata could be
     supported in the future.
 
     Multiple labels can be assigned to a mapchunk in mod storage - the
@@ -54,7 +54,7 @@ function label.new(tag)
     check_tag(tag)
     local l = {}
     l.name = tag
-    l.timestamp = minetest.get_gametime()
+    l.timestamp = core.get_gametime()
     return setmetatable(l, label)
 end
 
@@ -75,13 +75,13 @@ end
 
 -- Updates the label's timestamp to the
 function label:refresh_timestamp()
-    self.timestamp = minetest.get_gametime()
+    self.timestamp = core.get_gametime()
 end
 
 -- Gets the elapsed time since the label had it's timestamp changed
 -- (creation/modification).
 function label:elapsed_time()
-    return minetest.get_gametime() - self.timestamp
+    return core.get_gametime() - self.timestamp
 end
 
 -- Returns a short formatted note for the label (its name and
@@ -99,14 +99,14 @@ function label.encode(...)
     for _, lab in pairs(labels) do
         table.insert(formatted, lab:format())
     end
-    return minetest.serialize(formatted)
+    return core.serialize(formatted)
 end
 
 -- Decodes 'encoded' - the serialized label string from mod storage
 -- into objects of the 'label' class. Returns a table of label
 -- objects. Or an emtpy table if there were no labels.
 function label.decode(encoded)
-    local raw_labels = minetest.deserialize(encoded) or {}
+    local raw_labels = core.deserialize(encoded) or {}
     local labels = {}
     for _, raw in ipairs(raw_labels) do
         table.insert(labels, ms.label.from_raw(raw))

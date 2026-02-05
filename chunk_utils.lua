@@ -19,16 +19,16 @@
 -- Globals
 local ms = mapchunk_shepherd
 
-local mod_path = minetest.get_modpath('mapchunk_shepherd')
+local mod_path = core.get_modpath('mapchunk_shepherd')
 local sizes = dofile(mod_path.."/sizes.lua")
 
--- We're in mapgen env when 'minetest.save_gen_notify' is a function.
--- In the ordinary env 'minetest.save_gen_notify' is nil.
-local mapgen_env = minetest.save_gen_notify
+-- We're in mapgen env when 'core.save_gen_notify' is a function.
+-- In the ordinary env 'core.save_gen_notify' is nil.
+local mapgen_env = core.save_gen_notify
 local mod_storage
 
 if not mapgen_env then
-    mod_storage = minetest.get_mod_storage()
+    mod_storage = core.get_mod_storage()
 end
 
 -- Checks if a function with name 'function_name' was used in the mapgen
@@ -108,7 +108,7 @@ local function get_inner_corners(mapchunk_origin)
     local corners = {}
     if sizes.mapchunk.in_mapblocks <= 1 then
         -- No corners, just one mapblock
-        local hash = minetest.hash_node_position(mapchunk_origin)
+        local hash = core.hash_node_position(mapchunk_origin)
         return {[hash] = mapchunk_origin}
     end
     local ori_coords = ms.units.mapblock_coords(mapchunk_origin)
@@ -121,7 +121,7 @@ local function get_inner_corners(mapchunk_origin)
                                      y == 0 and 1 or -1,
                                      z == 0 and 1 or -1)
                 local inner_corner = ms.units.mapblock_to_node(corner + v)
-                local hash = minetest.hash_node_position(inner_corner)
+                local hash = core.hash_node_position(inner_corner)
                 corners[hash] = inner_corner
             end
         end
@@ -133,8 +133,8 @@ function ms.loaded_or_active(mapchunk_origin)
     check_mapgen_env("loaded_or_active")
     local corners = get_inner_corners(mapchunk_origin)
     for _, pos in pairs(corners) do
-        if minetest.compare_block_status(pos, "loaded") or
-            minetest.compare_block_status(pos, "active") then
+        if core.compare_block_status(pos, "loaded") or
+            core.compare_block_status(pos, "active") then
             return true
         end
     end
@@ -145,7 +145,7 @@ function ms.neighboring_mapchunks(hash)
     check_mapgen_env("neighboring_mapchunks")
     local pos = ms.mapchunk_hash_to_pos(hash)
     local hashes = {}
-    local diameter = tonumber(minetest.settings:get("viewing_range")) * 2
+    local diameter = tonumber(core.settings:get("viewing_range")) * 2
     local nr = math.ceil(diameter / sizes.mapchunk.in_nodes)
     for z = -nr, nr do
         for y = -nr, nr do
@@ -161,7 +161,7 @@ end
 
 function ms.save_time(hash)
     check_mapgen_env("save_time")
-    local time = minetest.get_gametime()
+    local time = core.get_gametime()
     mod_storage:set_int(hash.."_time", time)
 end
 
@@ -172,7 +172,7 @@ end
 
 function ms.time_since_last_change(hash)
     check_mapgen_env("time_since_last_change")
-    local current_time = minetest.get_gametime()
+    local current_time = core.get_gametime()
     return current_time - mod_storage:get_int(hash.."_time")
 end
 

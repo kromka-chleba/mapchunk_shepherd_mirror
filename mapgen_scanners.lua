@@ -44,7 +44,7 @@ end
 -- watchdog instance.  Each scanner function has to be a function that
 -- takes two arguments - 'hash' that is the mapchunk hash and
 -- 'mapgen_args' - a table of arguments {'vm', 'minp', 'maxp',
--- 'blockseed'} obtained from 'minetest.register_on_generated'. 'func'
+-- 'blockseed'} obtained from 'core.register_on_generated'. 'func'
 -- returns two tables: 'added_labels', 'removed_labels' that contain
 -- respectively labels that should be added to the mapchunk and labels
 -- that should be removed from it.
@@ -78,13 +78,13 @@ function ms.create_biome_finder(args)
         biome_finders, 
         function(hash, mapgen_args)
             local vm, minp, maxp, blockseed = unpack(mapgen_args)
-            local biomemap = minetest.get_mapgen_object("biomemap")
+            local biomemap = core.get_mapgen_object("biomemap")
             local present_biomes = {}
             for i = 1, #biomemap do
                 present_biomes[biomemap[i]] = true
             end
             for _, biome in pairs(biome_list) do
-                local id = minetest.get_biome_id(biome)
+                local id = core.get_biome_id(biome)
                 if present_biomes[id] then
                     return added_labels, removed_labels
                 end
@@ -97,13 +97,13 @@ local main_watchdog = mapgen_watchdog.new()
 
 local function mapgen_scanner(vm, minp, maxp, blockseed)
     local mapgen_args = {vm, minp, maxp, blockseed}
-    local t1 = minetest.get_us_time()
+    local t1 = core.get_us_time()
     local hash = ms.mapchunk_hash(minp) -- XXX needs adjustments
     main_watchdog:set_hash(hash)
     main_watchdog:add_scanners(biome_finders)
     main_watchdog:run_scanners(mapgen_args)
     main_watchdog:save_gen_notify()
-    --minetest.log("error", string.format("elapsed time: %g ms", (minetest.get_us_time() - t1) / 1000))
+    --core.log("error", string.format("elapsed time: %g ms", (core.get_us_time() - t1) / 1000))
 end
 
---minetest.register_on_generated(mapgen_scanner)
+--core.register_on_generated(mapgen_scanner)

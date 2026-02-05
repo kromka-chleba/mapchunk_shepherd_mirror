@@ -19,9 +19,9 @@
 -- Globals
 local ms = mapchunk_shepherd
 
-local mod_path = minetest.get_modpath("mapchunk_shepherd")
+local mod_path = core.get_modpath("mapchunk_shepherd")
 local sizes = dofile(mod_path.."/sizes.lua")
-local mod_storage = minetest.get_mod_storage()
+local mod_storage = core.get_mod_storage()
 
 -- Returns version of the Mapchunk Shepherd mod
 function ms.mod_version()
@@ -100,9 +100,9 @@ end
 -- Checks if the database format stored in mod storage is compatible with this version of the shepherd. Runs code for database initialization and upgrade. Returns a boolean - `true` if compatibility was ensured and `false` if not.
 function ms.ensure_compatibility()
     if ms.chunksize_changed() then
-        minetest.log("error", "Mapblock Shepherd: chunksize changed to "..
+        core.log("error", "Mapblock Shepherd: chunksize changed to "..
                      sizes.mapchunk.in_mapblocks.." from "..ms.database.chunksize()..".")
-        minetest.log("error", "Mapblock Shepherd: Changing chunksize can corrupt stored data."..
+        core.log("error", "Mapblock Shepherd: Changing chunksize can corrupt stored data."..
                      " Refusing to start.")
         return false
     end

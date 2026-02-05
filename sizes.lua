@@ -19,7 +19,7 @@
 local sizes = {}
 
 -- in mapblocks
-local blocks_per_chunk = tonumber(minetest.get_mapgen_setting("chunksize"))
+local blocks_per_chunk = tonumber(core.get_mapgen_setting("chunksize"))
 -- in nodes
 local mapblock_size = 16
 -- in nodes

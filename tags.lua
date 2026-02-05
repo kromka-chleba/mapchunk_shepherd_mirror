@@ -28,7 +28,7 @@ local ms = mapchunk_shepherd
     need to be registered using 'mapchunk_shepherd.tag.register'. Tags
     need to be registered both in the ordinary environment and in
     mapgen env (in a file that was marked as a mapgen script with
-    'minetest.register_mapgen_script'.
+    'core.register_mapgen_script'.
 --]]
 
 ms.tag = {}
