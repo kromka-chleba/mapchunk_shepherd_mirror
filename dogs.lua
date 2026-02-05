@@ -1,5 +1,5 @@
 --[[
-    This is a part of "Mapchunk Shepherd".
+    This is a part of "Mapblock Shepherd".
     Copyright (C) 2023-2024 Jan Wielkiewicz <tona_kosmicznego_smiecia@interia.pl>
 
     This program is free software: you can redistribute it and/or modify
@@ -28,8 +28,8 @@ local placeholder_id_finder_pairs = {}
 local ignore_id = minetest.get_content_id("ignore")
 local air_id = minetest.get_content_id("air")
 
-local blocks_per_chunk = tonumber(minetest.get_mapgen_setting("chunksize"))
-local chunk_side = blocks_per_chunk * 16
+-- Size of a single mapblock in nodes
+local mapblock_side = 16
 
 -- iterate over ids of all possible existing nodes
 for i = 1, 32768 do
@@ -252,7 +252,7 @@ function ms.create_light_aware_replacer(args)
         for i = 1, #data do
             local replacement = ids[data[i]]
             if replacement then
-                local above_index = i + chunk_side
+                local above_index = i + mapblock_side
                 local random_pick = false
                 if not data_light[above_index] then
                     above_index = i
@@ -319,7 +319,7 @@ function ms.create_light_aware_top_placer(args)
             local find_id = find_ids[data[i]]
             if find_id then
                 if data[i] == find_id then
-                    local above_index = i + chunk_side
+                    local above_index = i + mapblock_side
                     local replacement = replace_ids[data[above_index]]
                     if data_light[above_index] and
                         data_light[above_index] > higher_than and
@@ -413,10 +413,10 @@ function ms.create_neighbor_aware_replacer(args)
             if replacement then
                 if neighbor_ids[data[i - 1]] or
                     neighbor_ids[data[i + 1]] or
-                    neighbor_ids[data[i - chunk_side]] or
-                    neighbor_ids[data[i + chunk_side]] or
-                    neighbor_ids[data[i - chunk_side^2]] or
-                    neighbor_ids[data[i + chunk_side^2]] then
+                    neighbor_ids[data[i - mapblock_side]] or
+                    neighbor_ids[data[i + mapblock_side]] or
+                    neighbor_ids[data[i - mapblock_side^2]] or
+                    neighbor_ids[data[i + mapblock_side^2]] then
                     if chance >= math.random() then
                         data[i] = replacement
                     end

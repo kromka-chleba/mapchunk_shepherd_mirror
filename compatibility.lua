@@ -1,5 +1,5 @@
 --[[
-    This is a part of "Mapchunk Shepherd".
+    This is a part of "Mapblock Shepherd".
     Copyright (C) 2025 Jan Wielkiewicz <tona_kosmicznego_smiecia@interia.pl>
 
     This program is free software: you can redistribute it and/or modify
@@ -100,9 +100,9 @@ end
 -- Checks if the database format stored in mod storage is compatible with this version of the shepherd. Runs code for database initialization and upgrade. Returns a boolean - `true` if compatibility was ensured and `false` if not.
 function ms.ensure_compatibility()
     if ms.chunksize_changed() then
-        minetest.log("error", "Mapchunk Shepherd: chunksize changed to "..
+        minetest.log("error", "Mapblock Shepherd: chunksize changed to "..
                      sizes.mapchunk.in_mapblocks.." from "..ms.database.chunksize()..".")
-        minetest.log("error", "Mapchunk Shepherd: Changing chunksize can corrupt stored data."..
+        minetest.log("error", "Mapblock Shepherd: Changing chunksize can corrupt stored data."..
                      " Refusing to start.")
         return false
     end

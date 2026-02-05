@@ -1,5 +1,5 @@
 --[[
-    This is a part of "Mapchunk Shepherd".
+    This is a part of "Mapblock Shepherd".
     Copyright (C) 2024 Jan Wielkiewicz <tona_kosmicznego_smiecia@interia.pl>
 
     This program is free software: you can redistribute it and/or modify
@@ -133,7 +133,7 @@ end
 local function check_mapgen_env(method_name)
     assert(not mapgen_env,
            string.format(
-               "Mapchunk Shepherd: label_store: "..
+               "Mapblock Shepherd: label_store: "..
                "trying to call the '%s' method from the mapgen env.",
                method_name))
 end
@@ -247,7 +247,7 @@ end
 local function check_env(method_name)
     assert(mapgen_env,
            string.format(
-               "Mapchunk Shepherd: label_store: "..
+               "Mapblock Shepherd: label_store: "..
                "trying to call the '%s' method from normal env.\n"..
                "This method can be only called fron mapgen env.",
                method_name))

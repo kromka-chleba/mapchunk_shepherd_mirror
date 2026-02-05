@@ -1,5 +1,5 @@
 --[[
-    This is a part of "Mapchunk Shepherd".
+    This is a part of "Mapblock Shepherd".
     Copyright (C) 2024 Jan Wielkiewicz <tona_kosmicznego_smiecia@interia.pl>
 
     This program is free software: you can redistribute it and/or modify
@@ -42,7 +42,7 @@ label.__index = ms.label
 local function check_tag(tag)
     assert(ms.tag.check(tag),
            string.format(
-               "Mapchunk Shepherd:"..
+               "Mapblock Shepherd:"..
                "Trying to create a label with tag '%s', "..
                "which is not a registered tag.", tag))
 end

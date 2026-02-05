@@ -1,5 +1,5 @@
 --[[
-    This is a part of "Mapchunk Shepherd".
+    This is a part of "Mapblock Shepherd".
     Copyright (C) 2023-2025 Jan Wielkiewicz <tona_kosmicznego_smiecia@interia.pl>
 
     This program is free software: you can redistribute it and/or modify
@@ -164,22 +164,133 @@ local function refresh_workers()
 end
 
 ---------------------------------------------------------------------
--- Main loop of the shepherd
+-- Block tracking and processing
 ---------------------------------------------------------------------
 
-local shepherd_interval = 10 -- in seconds
+-- Track blocks that need processing
+local blocks_to_process = {}
+local blocks_pending = {}
+
+-- Add a block to the processing queue
+local function queue_block(blockpos)
+    local hash = minetest.hash_node_position(blockpos)
+    local our_hash = ms.hash(blockpos)
+    if not blocks_pending[hash] then
+        blocks_pending[hash] = our_hash
+        table.insert(blocks_to_process, {hash = hash, our_hash = our_hash, is_active = false})
+    end
+end
+
+-- Mark block as active (should be processed first)
+local function mark_block_active(blockpos)
+    local hash = minetest.hash_node_position(blockpos)
+    local our_hash = ms.hash(blockpos)
+    blocks_pending[hash] = our_hash
+    -- Find existing entry or add new one
+    local found = false
+    for _, entry in ipairs(blocks_to_process) do
+        if entry.hash == hash then
+            entry.is_active = true
+            found = true
+            break
+        end
+    end
+    if not found then
+        table.insert(blocks_to_process, {hash = hash, our_hash = our_hash, is_active = true})
+    end
+end
+
+-- Remove block from processing queue
+local function unqueue_block(blockpos)
+    local hash = minetest.hash_node_position(blockpos)
+    blocks_pending[hash] = nil
+    for i = #blocks_to_process, 1, -1 do
+        if blocks_to_process[i].hash == hash then
+            table.remove(blocks_to_process, i)
+        end
+    end
+end
+
+---------------------------------------------------------------------
+-- Block callback registration
+---------------------------------------------------------------------
+
+-- Called when a mapblock is loaded from disk or generated
+minetest.register_on_block_loaded(function(blockpos)
+    queue_block(blockpos)
+end)
+
+-- Called when a mapblock becomes active (within active_block_range of player)
+minetest.register_on_block_activated(function(blockpos)
+    mark_block_active(blockpos)
+end)
+
+-- Called when mapblocks are deactivated
+minetest.register_on_block_deactivated(function(blockpos_list)
+    for _, blockpos in ipairs(blockpos_list) do
+        -- Keep in queue but mark as not active
+        local hash = minetest.hash_node_position(blockpos)
+        for _, entry in ipairs(blocks_to_process) do
+            if entry.hash == hash then
+                entry.is_active = false
+                break
+            end
+        end
+    end
+end)
+
+-- Called when mapblocks are completely unloaded from memory
+minetest.register_on_block_unloaded(function(blockpos_list)
+    for _, blockpos in ipairs(blockpos_list) do
+        unqueue_block(blockpos)
+    end
+end)
+
+---------------------------------------------------------------------
+-- Main processing loop
+---------------------------------------------------------------------
+
+local shepherd_interval = 1.0 -- in seconds
+local max_blocks_per_tick = 5 -- process up to 5 blocks per tick
 
 local function main_loop()
-    core.log("error", "loop")
     refresh_workers()
-    core.blocks_callback({
-            mode = "quick",
-            callback = function(hash)
-                local new_coords = core.get_position_from_hash(hash)
-                local new_hash = ms.hash(new_coords)
-                run_workers(new_hash)
-            end,
-    })
+    
+    if #blocks_to_process == 0 then
+        minetest.after(shepherd_interval, main_loop)
+        return
+    end
+    
+    -- Sort blocks: active blocks first (they're closer to players)
+    table.sort(blocks_to_process, function(a, b)
+        if a.is_active ~= b.is_active then
+            return a.is_active -- active blocks come first
+        end
+        return false -- maintain order for same priority
+    end)
+    
+    -- Process blocks
+    local processed = 0
+    for i = #blocks_to_process, 1, -1 do
+        if processed >= max_blocks_per_tick then
+            break
+        end
+        
+        local entry = blocks_to_process[i]
+        local hash = entry.hash
+        local our_hash = entry.our_hash
+        
+        -- Check if block is still loaded
+        if core.loaded_blocks[hash] then
+            run_workers(our_hash)
+            processed = processed + 1
+        end
+        
+        -- Remove from queue after processing
+        blocks_pending[hash] = nil
+        table.remove(blocks_to_process, i)
+    end
+    
     minetest.after(shepherd_interval, main_loop)
 end
 
@@ -190,9 +301,8 @@ end
 -- Only start the shepherd if the database format is correct and
 -- chunksize did not change.
 if ms.ensure_compatibility() then
-    -- Start the tracker
-    minetest.register_globalstep(player_tracker_loop)
-    minetest.register_globalstep(run_workers)
+    -- Start the main processing loop
+    minetest.after(shepherd_interval, main_loop)
 end
 
 ------------------------------------------------------------------
@@ -201,14 +311,14 @@ end
 
 core.register_privilege(
     "mapchunk_shepherd", {
-        description = "Grants access to destructive mapchunk shepherd commands.",
+        description = "Grants access to destructive mapblock shepherd commands.",
         give_to_singleplayer = false,
         give_to_admin = true,
 })
 
 minetest.register_chatcommand(
     "shepherd_status", {
-        description = S("Prints status of the Mapchunk Shepherd."),
+        description = S("Prints status of the Mapblock Shepherd."),
         privs = {},
         func = function(name, param)
             local worker_names = {}
@@ -218,7 +328,7 @@ minetest.register_chatcommand(
             worker_names = minetest.serialize(worker_names)
             worker_names = worker_names:gsub("return ", "")
             local nr_of_chunks = ms.tracked_chunk_counter()
-            local tracked_chunks_status = S("Tracked chunks: ")..nr_of_chunks
+            local tracked_chunks_status = S("Tracked blocks: ")..nr_of_chunks
             local work_time_status = S("Working time: ")..
                 S("Min: ")..math.ceil(min_working_time).." ms | "..
                 S("Max: ")..math.ceil(max_working_time).." ms | "..

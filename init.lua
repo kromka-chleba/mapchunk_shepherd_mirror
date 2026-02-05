@@ -1,5 +1,5 @@
 --[[
-    This is a part of "Mapchunk Shepherd".
+    This is a part of "Mapblock Shepherd".
     Copyright (C) 2023 Jan Wielkiewicz <tona_kosmicznego_smiecia@interia.pl>
 
     This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,7 @@
 --]]
 
 ---------------------------------------------
----- Mapchunk shepherd
+---- Mapblock shepherd
 ---------------------------------------------
 
 -- Globals
@@ -38,6 +38,5 @@ dofile(mod_path.."/chunk_utils.lua")
 dofile(mod_path.."/dogs.lua")
 dofile(mod_path.."/compatibility.lua")
 dofile(mod_path.."/shepherd.lua")
---dofile(mod_path.."/gennotify_listener.lua")
 
 minetest.register_mapgen_script(mod_path.."/mapgen_env.lua")

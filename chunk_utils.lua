@@ -1,5 +1,5 @@
 --[[
-    This is a part of "Mapchunk Shepherd".
+    This is a part of "Mapblock Shepherd".
     Copyright (C) 2024 Jan Wielkiewicz <tona_kosmicznego_smiecia@interia.pl>
 
     This program is free software: you can redistribute it and/or modify
@@ -36,7 +36,7 @@ end
 local function check_mapgen_env(function_name)
     assert(not mapgen_env,
            string.format(
-               "Mapchunk Shepherd: chunk_utils: "..
+               "Mapblock Shepherd: chunk_utils: "..
                "trying to call the '%s' function from the mapgen env.",
                function_name))
 end

@@ -1,5 +1,5 @@
 --[[
-    This is a part of "Mapchunk Shepherd".
+    This is a part of "Mapblock Shepherd".
     Copyright (C) 2024 Jan Wielkiewicz <tona_kosmicznego_smiecia@interia.pl>
 
     This program is free software: you can redistribute it and/or modify
@@ -52,7 +52,7 @@ function tag.register(name)
     assert(type(name) == "string",
            "Tag 'name' should be string but is "..type(name).." instead.")
     assert(not registered_tags[name],
-           "Mapchunk shepherd: Tag with name \""..name.."\" already exists!")
+           "Mapblock shepherd: Tag with name \""..name.."\" already exists!")
     registered_tags[name] = true
     core.ipc_set("shepherd_tags", registered_tags)
 end
