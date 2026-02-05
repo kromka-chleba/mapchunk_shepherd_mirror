@@ -174,18 +174,16 @@ local blocks_pending = {}
 -- Add a block to the processing queue
 local function queue_block(blockpos)
     local hash = core.hash_node_position(blockpos)
-    local our_hash = ms.hash(blockpos)
     if not blocks_pending[hash] then
-        blocks_pending[hash] = our_hash
-        table.insert(blocks_to_process, {hash = hash, our_hash = our_hash, is_active = false})
+        blocks_pending[hash] = true
+        table.insert(blocks_to_process, {hash = hash, is_active = false})
     end
 end
 
 -- Mark block as active (should be processed first)
 local function mark_block_active(blockpos)
     local hash = core.hash_node_position(blockpos)
-    local our_hash = ms.hash(blockpos)
-    blocks_pending[hash] = our_hash
+    blocks_pending[hash] = true
     -- Find existing entry or add new one
     local found = false
     for _, entry in ipairs(blocks_to_process) do
@@ -196,7 +194,7 @@ local function mark_block_active(blockpos)
         end
     end
     if not found then
-        table.insert(blocks_to_process, {hash = hash, our_hash = our_hash, is_active = true})
+        table.insert(blocks_to_process, {hash = hash, is_active = true})
     end
 end
 
@@ -278,11 +276,10 @@ local function main_loop()
         
         local entry = blocks_to_process[i]
         local hash = entry.hash
-        local our_hash = entry.our_hash
         
         -- Check if block is still loaded
         if core.loaded_blocks[hash] then
-            run_workers(our_hash)
+            run_workers(hash)
             processed = processed + 1
         end
         
@@ -370,9 +367,6 @@ core.register_chatcommand(
             local player = core.get_player_by_name(name)
             local pos = player:get_pos()
             local hash = ms.mapblock_hash(pos)
-            local old_coords = ms.unhash(hash)
-            core.log("error", "Old coords: ")
-            core.log("error", dump(old_coords))
             local ls = ms.label_store.new(hash)
             ls:add_labels(labels)
             ls:save_to_disk()

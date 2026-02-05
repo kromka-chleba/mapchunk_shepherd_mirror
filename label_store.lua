@@ -46,13 +46,17 @@ if not mapgen_env then
     mod_storage = core.get_mod_storage()
 end
 
--- Creates a new label_store object. 'hash' is a mapchunk hash created
--- using the 'ms.mapchunk_hash' function. Initializes the object with
--- labels saved in mod storage (if available).
+-- Creates a new label_store object.
+-- 'hash' - Luanti standard hash (from core.hash_node_position).
+-- Initializes the object with labels saved in mod storage (if available).
 -- Returns the label store object.
 function label_store.new(hash)
     local ls = setmetatable({}, label_store)
+    -- Store the public hash
     ls.hash = hash
+    -- Convert Luanti hash to internal format for storage
+    local blockpos = core.get_position_from_hash(hash)
+    ls.internal_hash = core.encode_base64(blockpos.x.."_"..blockpos.y.."_"..blockpos.z)
     ls.staged_labels = {} -- stores label state, keyed by tag
     ls.labels = {} -- stores label objects, keyed by tag
     if not mapgen_env then
@@ -67,14 +71,17 @@ function label_store:reset_labels()
     self.labels = {}
 end
 
--- Sets the hash of the label store to 'hash' which is a mapchunk hash
--- created using the 'ms.mapchunk_hash' function. Resets labels in
--- both buffers and reads labels from mod storage for the mapchunk.
+-- Sets the hash of the label store to 'hash'.
+-- 'hash' - Luanti standard hash (from core.hash_node_position).
+-- Resets labels in both buffers and reads labels from mod storage for the mapblock/mapchunk.
 function label_store:set_hash(hash)
     self.hash = hash
+    -- Convert to internal format for storage
+    local blockpos = core.get_position_from_hash(hash)
+    self.internal_hash = core.encode_base64(blockpos.x.."_"..blockpos.y.."_"..blockpos.z)
     self:reset_labels()
     if not mapgen_env then
-        ls:read_from_disk()
+        self:read_from_disk()
     end
 end
 
@@ -159,22 +166,24 @@ function label_store:remove_labels(...)
 end
 
 -- Imports labels mod storage for the mapchunk, saves them in 'self.labels'
+-- Reads labels from mod storage for the mapblock/mapchunk tracked by
+-- the label store and populates 'self.labels'.
 function label_store:read_from_disk()
     check_mapgen_env("read_from_disk")
-    local encoded = mod_storage:get_string(self.hash)
+    local encoded = mod_storage:get_string(self.internal_hash)
     local labels = ms.label.decode(encoded)
     for _, label in ipairs(labels) do
         self.labels[label.name] = label
     end
 end
 
--- Saves labels from 'self.labels' to mod storage for the mapchunk
+-- Saves labels from 'self.labels' to mod storage for the mapblock/mapchunk
 -- tracked by the label store.
 function label_store:save_to_disk()
     check_mapgen_env("save_to_disk")
     self:set_labels()
     local encoded = ms.label.encode(self.labels)
-    mod_storage:set_string(self.hash, encoded)
+    mod_storage:set_string(self.internal_hash, encoded)
 end
 
 -- Checks if the label store contains labels given by '...', which is
