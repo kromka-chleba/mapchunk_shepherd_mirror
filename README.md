@@ -66,9 +66,3 @@ Extra "Needed labels" can be defined to restrict workers to only specific blocks
 For example a worker replacing spring soil with winter soil will only pick up blocks having the "has_spring_soil"
 label and replace the label with "has_winter_soil".
 Workers replace nodes on these mapblocks and assign specific labels, then the hash is removed from the queue.
-
-* Failed block:
-Sometimes a scanner or a worker can fail.
-This usually happens when the loaded mapblock contains "ignore" nodes.
-If a scanner or worker fails, "scanner_failed" or "worker_failed" labels are assigned respectively.
-Failed blocks can be reprocessed when they become active again.

@@ -37,8 +37,6 @@ for i = 1, 32768 do
     placeholder_id_pairs[i] = false
 end
 
-placeholder_id_pairs[ignore_id] = false
-
 function ms.placeholder_id_pairs()
     return table.copy(placeholder_id_pairs)
 end
@@ -150,7 +148,6 @@ function ms.create_simple_replacer(args)
     local find_replace_pairs = args.find_replace_pairs
     local labels_to_add = args.add_labels or {}
     local labels_to_remove = args.remove_labels or {}
-    table.insert(labels_to_remove, "worker_failed")
     local not_found = args.not_found_labels
     local not_found_remove = args.not_found_remove
     local ids = table.copy(placeholder_id_pairs)
@@ -170,8 +167,6 @@ function ms.create_simple_replacer(args)
                     data[i] = replacement
                 end
                 found = true
-            elseif data[i] == ignore_id then
-                return {"worker_failed"}
             end
         end
         if found then
@@ -187,7 +182,6 @@ function ms.create_param2_aware_replacer(args)
     local find_replace_pairs = args.find_replace_pairs
     local labels_to_add = args.add_labels or {}
     local labels_to_remove = args.remove_labels or {}
-    table.insert(labels_to_remove, "worker_failed")
     local not_found = args.not_found_labels
     local not_found_remove = args.not_found_remove
     local lower_than = args.lower_than or 257
@@ -200,7 +194,6 @@ function ms.create_param2_aware_replacer(args)
     end
     return function(pos_min, pos_max, vm_data, chance)
         local chance = chance or 1
-        --local t1 = core.get_us_time()
         local found = false
         local data = vm_data.nodes
         local data_param2 = vm_data.param2
@@ -213,13 +206,10 @@ function ms.create_param2_aware_replacer(args)
                         data[i] = replacement
                     end
                     found = true
-                elseif data[i] == ignore_id then
-                    return {"worker_failed"}
                 end
             end
         end
         if found then
-            --core.log("error", string.format("elapsed time: %g ms", (core.get_us_time() - t1) / 1000))
             return labels_to_add, labels_to_remove, true
         else
             return not_found, not_found_remove
@@ -232,7 +222,6 @@ function ms.create_light_aware_replacer(args)
     local find_replace_pairs = args.find_replace_pairs
     local labels_to_add = args.add_labels or {}
     local labels_to_remove = args.remove_labels or {}
-    table.insert(labels_to_remove, "worker_failed")
     local not_found = args.not_found_labels
     local not_found_remove = args.not_found_remove
     local lower_than = args.lower_than or 16
@@ -245,7 +234,6 @@ function ms.create_light_aware_replacer(args)
     end
     return function(pos_min, pos_max, vm_data, chance)
         local chance = chance or 1
-        --local t1 = core.get_us_time()
         local found = false
         local data = vm_data.nodes
         local data_light = vm_data.light
@@ -267,13 +255,10 @@ function ms.create_light_aware_replacer(args)
                         data[i] = replacement
                     end
                     found = true
-                elseif data[i] == ignore_id then
-                    return {"worker_failed"}
                 end
             end
         end
         if found then
-            --core.log("error", string.format("elapsed time: %g ms", (core.get_us_time() - t1) / 1000))
             return labels_to_add, labels_to_remove, true
         else
             return not_found, not_found_remove
@@ -287,7 +272,6 @@ function ms.create_light_aware_top_placer(args)
     -- Labels
     local labels_to_add = args.add_labels or {}
     local labels_to_remove = args.remove_labels or {}
-    table.insert(labels_to_remove, "worker_failed")
     local not_found = args.not_found_labels
     local not_found_remove = args.not_found_remove
     -- Node properties
@@ -311,7 +295,6 @@ function ms.create_light_aware_top_placer(args)
     end
     return function(pos_min, pos_max, vm_data, chance)
         local chance = chance or 1
-        --local t1 = core.get_us_time()
         local found = false
         local data = vm_data.nodes
         local data_light = vm_data.light
@@ -330,13 +313,10 @@ function ms.create_light_aware_top_placer(args)
                             found = true
                         end
                     end
-                elseif data[i] == ignore_id then
-                    return {"worker_failed"}
                 end
             end
         end
         if found then
-            --core.log("error", string.format("elapsed time: %g ms", (core.get_us_time() - t1) / 1000))
             return labels_to_add, labels_to_remove
         else
             return not_found, not_found_remove
@@ -389,7 +369,6 @@ function ms.create_neighbor_aware_replacer(args)
     local neighbors = args.neighbors
     local labels_to_add = args.add_labels or {}
     local labels_to_remove = args.remove_labels or {}
-    table.insert(labels_to_remove, "worker_failed")
     local not_found = args.not_found_labels
     local not_found_remove = args.not_found_remove
     local ids = table.copy(placeholder_id_pairs)
@@ -405,7 +384,6 @@ function ms.create_neighbor_aware_replacer(args)
     end
     return function(pos_min, pos_max, vm_data, chance)
         local chance = chance or 1
-        --local t1 = core.get_us_time()
         local found = false
         local data = vm_data.nodes
         for i = 1, #data do
@@ -422,12 +400,9 @@ function ms.create_neighbor_aware_replacer(args)
                     end
                 end
                 found = true
-            elseif data[i] == ignore_id then
-                return {"worker_failed"}
             end
         end
         if found then
-            --core.log("error", string.format("elapsed time: %g ms", (core.get_us_time() - t1) / 1000))
             return labels_to_add, labels_to_remove, true
         else
             return not_found, not_found_remove
