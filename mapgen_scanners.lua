@@ -33,8 +33,8 @@ end
 
 local private = setmetatable({}, {__mode = "k"})
 
-function mapgen_watchdog.new(hash)
-    local w = ms.label_store.new(hash)
+function mapgen_watchdog.new(block_hash, blockpos)
+    local w = ms.label_store.new(block_hash, blockpos)
     w.scanners = {}
     private[w] = {}
     return setmetatable(w, mapgen_watchdog)
@@ -42,11 +42,11 @@ end
 
 -- Adds multiple scanner functions given by '...' into the mapgen
 -- watchdog instance.  Each scanner function has to be a function that
--- takes two arguments - 'hash' that is the mapchunk hash and
--- 'mapgen_args' - a table of arguments {'vm', 'minp', 'maxp',
+-- takes three arguments - 'block_hash' (public hash), 'blockpos' (mapblock position),
+-- and 'mapgen_args' - a table of arguments {'vm', 'minp', 'maxp',
 -- 'blockseed'} obtained from 'core.register_on_generated'. 'func'
 -- returns two tables: 'added_labels', 'removed_labels' that contain
--- respectively labels that should be added to the mapchunk and labels
+-- respectively labels that should be added to the mapblock and labels
 -- that should be removed from it.
 function mapgen_watchdog:add_scanners(...)
     local scanners = ms.unpack_args(...)
@@ -61,7 +61,7 @@ end
 
 function mapgen_watchdog:run_scanners(mapgen_args)
     for _, scanner in ipairs(self.scanners) do
-        local added_labels, removed_labels = scanner(self.hash, mapgen_args)
+        local added_labels, removed_labels = scanner(self.block_hash, self.blockpos, mapgen_args)
         self:mark_for_addition(added_labels)
         self:mark_for_removal(removed_labels)
     end
@@ -69,8 +69,8 @@ end
 
 local biome_finders = {}
 
--- Creates a biome finder function that labels mapchunks during mapgen.
--- Detects specific biomes in generated mapchunks and adds labels.
+-- Creates a biome finder function that labels mapblocks during mapgen.
+-- Detects specific biomes in generated mapblocks and adds labels.
 -- args: Configuration table:
 --   - biome_list (table): List of biome names to detect
 --   - add_labels (table): Labels to add when biome is found
@@ -82,7 +82,7 @@ function ms.create_biome_finder(args)
     local removed_labels = args.remove_labels or {}
     table.insert(
         biome_finders, 
-        function(hash, mapgen_args)
+        function(block_hash, blockpos, mapgen_args)
             local vm, minp, maxp, blockseed = unpack(mapgen_args)
             local biomemap = core.get_mapgen_object("biomemap")
             local present_biomes = {}
@@ -102,7 +102,7 @@ end
 -- Main mapgen watchdog instance for coordinating scanners.
 local main_watchdog = mapgen_watchdog.new()
 
--- Mapgen scanner callback that runs all registered scanners on generated mapchunks.
+-- Mapgen scanner callback that runs all registered scanners on generated mapblocks.
 -- Called automatically by Luanti during mapgen.
 -- vm: VoxelManip object for the generated area.
 -- minp: Minimum position of the generated area.
@@ -111,8 +111,9 @@ local main_watchdog = mapgen_watchdog.new()
 local function mapgen_scanner(vm, minp, maxp, blockseed)
     local mapgen_args = {vm, minp, maxp, blockseed}
     local t1 = core.get_us_time()
-    local hash = ms.mapchunk_hash(minp)
-    main_watchdog:set_hash(hash)
+    local blockpos = ms.units.mapblock_coords(minp)
+    local block_hash = core.hash_node_position(blockpos)
+    main_watchdog:set_hash(block_hash, blockpos)
     main_watchdog:add_scanners(biome_finders)
     main_watchdog:run_scanners(mapgen_args)
     main_watchdog:save_gen_notify()

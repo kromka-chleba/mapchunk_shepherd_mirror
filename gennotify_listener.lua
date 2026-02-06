@@ -30,9 +30,10 @@ core.register_on_generated(
 		local gennotify = core.get_mapgen_object("gennotify")
 		local changed = gennotify.custom["mapchunk_shepherd:labeler"] or {}
 		for _, c in ipairs(changed) do
-            local hash, staged_labels = unpack(c)
-            local ls = label_stores[hash] or ms.label_store.new(hash)
-            label_stores[hash] = ls
+            local block_hash, blockpos, staged_labels = unpack(c)
+            local storage_key = ms.get_storage_key(blockpos)
+            local ls = label_stores[storage_key] or ms.label_store.new(block_hash, blockpos)
+            label_stores[storage_key] = ls
             ls.staged_labels = staged_labels
             ls:set_labels()
 		end
