@@ -70,7 +70,18 @@ end
 local biome_finders = {}
 
 -- Creates a biome finder function that labels mapblocks during mapgen.
--- Detects specific biomes in generated mapblocks and adds labels.
+-- Detects specific biomes in generated mapchunks and adds labels to mapblocks.
+--
+-- IMPORTANT: The biomemap from core.get_mapgen_object("biomemap") covers the
+-- ENTIRE mapchunk (typically 80x80x80 nodes), not just one mapblock (16x16x16).
+-- This function checks if any of the target biomes exist anywhere in the mapchunk,
+-- and if so, applies labels to ALL mapblocks in that mapchunk.
+--
+-- For more precise per-mapblock biome detection, you would need to:
+-- 1. Calculate which portion of the biomemap corresponds to each mapblock
+-- 2. Check only that portion for the target biomes
+-- (This is not currently implemented)
+--
 -- args: Configuration table:
 --   - biome_list (table): List of biome names to detect
 --   - add_labels (table): Labels to add when biome is found
@@ -84,6 +95,7 @@ function ms.create_biome_finder(args)
         biome_finders, 
         function(blockpos, mapgen_args)
             local vm, minp, maxp, blockseed = unpack(mapgen_args)
+            -- biomemap covers the entire mapchunk, not just this mapblock
             local biomemap = core.get_mapgen_object("biomemap")
             local present_biomes = {}
             for i = 1, #biomemap do
@@ -103,20 +115,40 @@ end
 -- Initialized with dummy blockpos, will be set properly during mapgen.
 local main_watchdog = mapgen_watchdog.new({x=0, y=0, z=0})
 
--- Mapgen scanner callback that runs all registered scanners on generated mapblocks.
+-- Mapgen scanner callback that runs all registered scanners on generated mapchunks.
 -- Called automatically by Luanti during mapgen.
--- vm: VoxelManip object for the generated area.
--- minp: Minimum position of the generated area.
--- maxp: Maximum position of the generated area.
--- blockseed: Seed for this mapblock.
+-- vm: VoxelManip object for the generated mapchunk area.
+-- minp: Minimum position of the generated mapchunk (in nodes).
+-- maxp: Maximum position of the generated mapchunk (in nodes).
+-- blockseed: Seed for this mapchunk.
+--
+-- IMPORTANT: on_generated returns a MAPCHUNK (typically 5x5x5 mapblocks = 80x80x80 nodes),
+-- NOT a single mapblock! We need to iterate over all mapblocks in the mapchunk
+-- and process each one separately, since our system works on a per-mapblock basis.
 local function mapgen_scanner(vm, minp, maxp, blockseed)
     local mapgen_args = {vm, minp, maxp, blockseed}
     local t1 = core.get_us_time()
-    local blockpos = ms.units.mapblock_coords(minp)
-    main_watchdog:set_blockpos(blockpos)
-    main_watchdog:add_scanners(biome_finders)
-    main_watchdog:run_scanners(mapgen_args)
-    main_watchdog:save_gen_notify()
+    
+    -- Get biomemap for the entire mapchunk (if used by scanners)
+    -- The biomemap covers the whole mapchunk, not just one mapblock
+    local biomemap = core.get_mapgen_object("biomemap")
+    
+    -- Calculate mapblock boundaries within the mapchunk
+    local minblock = ms.units.mapblock_coords(minp)
+    local maxblock = ms.units.mapblock_coords(maxp)
+    
+    -- Iterate over all mapblocks in the mapchunk
+    for z = minblock.z, maxblock.z do
+        for y = minblock.y, maxblock.y do
+            for x = minblock.x, maxblock.x do
+                local blockpos = {x = x, y = y, z = z}
+                main_watchdog:set_blockpos(blockpos)
+                main_watchdog:add_scanners(biome_finders)
+                main_watchdog:run_scanners(mapgen_args)
+                main_watchdog:save_gen_notify()
+            end
+        end
+    end
     --core.log("error", string.format("elapsed time: %g ms", (core.get_us_time() - t1) / 1000))
 end
 

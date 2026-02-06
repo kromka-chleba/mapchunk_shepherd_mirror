@@ -29,6 +29,11 @@ The Mapchunk Shepherd is a system responsible for:
 * Mapblock:
 A 16x16x16 cubic piece of the map (fixed size in Luanti).
 
+* Mapchunk:
+A larger region generated at once by the map generator, typically 5x5x5 mapblocks (80x80x80 nodes).
+The `core.register_on_generated()` callback operates on mapchunks, not individual mapblocks.
+Mapchunk size can be configured via the `chunksize` setting.
+
 * Active block:
 A mapblock that is close to a player (within the active_block_range). These blocks receive higher priority in the work queue.
 
@@ -64,7 +69,8 @@ Use mapgen scanners (biome/decoration finders) or workers for mapblock analysis 
 
 * Mapgen Scanner (Biome/Decoration Finder):
 Finds mapblocks that contain given mapgen biomes or decorations and adds labels to the mapblocks.
-Uses core.register_on_generated to label mapblocks during generation.
+Uses core.register_on_generated to process entire mapchunks during generation.
+The scanners iterate over all mapblocks within each generated mapchunk.
 More efficient than post-generation scanning because it uses mapgen data directly.
 Use cases include finding surface blocks by detecting surface-only decorations or specific biomes.
 
