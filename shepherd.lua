@@ -26,278 +26,275 @@ local mod_path = core.get_modpath('mapchunk_shepherd')
 local sizes = dofile(mod_path.."/sizes.lua")
 
 local mod_storage = core.get_mod_storage()
-local old_chunksize = mod_storage:get_int("chunksize")
 
 ---------------------------------------------------------------------
 -- Main loops of the shepherd
 ---------------------------------------------------------------------
 
-local work_queue = {}
+local processing_queue = {}
+local active_registry = {}
+local loaded_registry = {}
 
-local longer_break = 2 -- two seconds
-local previous_failure = false
-local small_break = 0.005
+local cycle_delay = 2
+local previous_cycle_failed = false
+local fast_cycle = 0.005
 
-local workers = {}
-local workers_by_name = {}
-local worker_running = false
+local worker_registry = {}
+local workers_indexed = {}
+local worker_busy = false
 
--- Clears the worker_running flag after a break, allowing the next worker cycle to run.
-local function worker_break()
-    worker_running = false
+local function release_worker()
+    worker_busy = false
 end
 
-local vm_data = {
+local voxel_cache = {
     nodes = {},
     param2 = {},
     light = {},
 }
 
--- Processes a single mapchunk by running all workers assigned to it.
--- Reads mapchunk data via VoxelManip, runs workers, updates labels, and writes changes back.
--- chunk: table with 'hash' (mapchunk hash) and 'workers' (table of worker names)
-local function process_chunk(chunk)
-    local hash = chunk.hash
-    local pos_min, pos_max = ms.mapchunk_min_max(hash)
+-- Executes workers on a single mapblock using VoxelManipulator
+local function execute_block(work_item)
+    local blockpos = work_item.blockpos
+    local block_hash = work_item.block_hash
+    local pos_min, pos_max = ms.mapblock_min_max(blockpos)
     local vm = VoxelManip()
     vm:read_from_map(pos_min, pos_max)
-    vm:get_data(vm_data.nodes)
-    vm:get_param2_data(vm_data.param2)
-    vm:get_light_data(vm_data.light)
-    local light_changed = false
-    local param2_changed = false
-    local ls = ms.label_store.new(hash)
-    for worker_name, _ in pairs(chunk.workers) do
-        local worker = workers_by_name[worker_name]
-        local added_labels, removed_labels, light_chd, param2_chd =
-            worker:run(pos_min, pos_max, vm_data)
-        ls:mark_for_addition(added_labels)
-        ls:mark_for_removal(removed_labels)
-        if light_chd then
-            light_changed = true
+    vm:get_data(voxel_cache.nodes)
+    vm:get_param2_data(voxel_cache.param2)
+    vm:get_light_data(voxel_cache.light)
+    local light_dirty = false
+    local param2_dirty = false
+    local ls = ms.label_store.new(block_hash, blockpos)
+    for worker_id, _ in pairs(work_item.workers) do
+        local worker = workers_indexed[worker_id]
+        local added_tags, removed_tags, light_mod, param2_mod =
+            worker:run(pos_min, pos_max, voxel_cache)
+        ls:mark_for_addition(added_tags)
+        ls:mark_for_removal(removed_tags)
+        if light_mod then
+            light_dirty = true
         end
-        if param2_chd then
-            param2_changed = true
+        if param2_mod then
+            param2_dirty = true
         end
     end
     ls:save_to_disk()
-    vm:set_data(vm_data.nodes)
-    if light_changed then
-        vm:set_light_data(vm_data.light)
+    vm:set_data(voxel_cache.nodes)
+    if light_dirty then
+        vm:set_light_data(voxel_cache.light)
     end
-    if param2_changed then
-        vm:set_param2_data(vm_data.param2)
+    if param2_dirty then
+        vm:set_param2_data(voxel_cache.param2)
     end
-    vm:write_to_map(light_changed)
+    vm:write_to_map(light_dirty)
     vm:update_liquids()
-    for worker_name, _ in pairs(chunk.workers) do
-        local worker = workers_by_name[worker_name]
-        worker:run_afterworker(hash)
+    for worker_id, _ in pairs(work_item.workers) do
+        local worker = workers_indexed[worker_id]
+        worker:run_afterworker(block_hash, blockpos)
     end
 end
 
-local min_working_time = math.huge
-local max_working_time = 0
-local worker_exec_times = {}
+local shortest_execution = math.huge
+local longest_execution = 0
+local execution_samples = {}
 
--- Records worker execution time statistics for performance monitoring.
--- time: The microsecond timestamp from when the worker started.
-local function record_worker_stats(time)
-    local elapsed = (core.get_us_time() - time) / 1000
-    --core.log("error", string.format("elapsed time: %g ms", elapsed))
-    if elapsed < min_working_time then
-        min_working_time = elapsed
+local function track_execution(start_time)
+    local elapsed = (core.get_us_time() - start_time) / 1000
+    if elapsed < shortest_execution then
+        shortest_execution = elapsed
     end
-    if elapsed > max_working_time then
-        max_working_time = elapsed
+    if elapsed > longest_execution then
+        longest_execution = elapsed
     end
-    table.insert(worker_exec_times, elapsed)
-    -- 100 data points for the moving average
-    if #worker_exec_times > 100 then
-        table.remove(worker_exec_times, 1)
+    table.insert(execution_samples, elapsed)
+    if #execution_samples > 100 then
+        table.remove(execution_samples, 1)
     end
 end
 
--- Returns the moving average of worker execution times.
--- Uses the last 100 execution times to compute the average.
--- Returns 0 if no data is available yet.
-local function get_average_working_time()
-    local sum = 0
-    if #worker_exec_times == 0 then
+local function compute_mean_execution()
+    local total = 0
+    if #execution_samples == 0 then
         return 0
     end
-    for _, time in pairs(worker_exec_times) do
-        sum = sum + time
+    for _, sample in pairs(execution_samples) do
+        total = total + sample
     end
-    return math.ceil(sum / #worker_exec_times)
+    return math.ceil(total / #execution_samples)
 end
 
--- Returns the moving median of worker execution times.
--- Uses the last 100 execution times to compute the median.
--- Returns 0 if no data is available yet.
-local function get_median_working_time()
-    local times_copy = table.copy(worker_exec_times)
-    table.sort(times_copy)
+local function compute_median_execution()
+    local sorted = table.copy(execution_samples)
+    table.sort(sorted)
     local median = 0
-    if #times_copy == 0 then
+    if #sorted == 0 then
         return 0
     end
-    if #times_copy % 2 == 0 then
-        median = (times_copy[#times_copy / 2] +
-                  times_copy[#times_copy / 2 + 1]) / 2
+    if #sorted % 2 == 0 then
+        median = (sorted[#sorted / 2] + sorted[#sorted / 2 + 1]) / 2
     else
-        median = times_copy[math.ceil(#times_copy / 2)]
+        median = sorted[math.ceil(#sorted / 2)]
     end
     return math.ceil(median)
 end
 
--- Main worker loop that processes one chunk from the work queue per call.
--- Called as a globalstep callback. Handles worker registration changes,
--- processes one chunk at a time, and schedules the next run.
--- dtime: Delta time since last call (unused but required by globalstep).
-local function run_workers(dtime)
-    if worker_running then
+-- Main worker execution cycle
+local function execute_cycle(dtime)
+    if worker_busy then
         return
     end
-    worker_running = true
+    worker_busy = true
     if ms.workers_changed then
-        workers = ms.workers
-        workers_by_name = ms.workers_by_name
+        worker_registry = ms.workers
+        workers_indexed = ms.workers_by_name
         ms.workers_changed = false
-        work_queue = {}
-        core.after(longer_break, worker_break)
+        processing_queue = {}
+        core.after(cycle_delay, release_worker)
         return
     end
-    if #workers == 0 then
-        core.after(longer_break, worker_break)
+    if #worker_registry == 0 then
+        core.after(cycle_delay, release_worker)
         return
     end
-    local chunk = work_queue[1]
-    if not chunk then
-        core.after(small_break, worker_break)
+    local work_item = processing_queue[1]
+    if not work_item then
+        core.after(fast_cycle, release_worker)
         return
     end
-    --core.log("error", "work queue: "..#work_queue)
     local t1 = core.get_us_time()
-    process_chunk(chunk)
-    record_worker_stats(t1)
-    table.remove(work_queue, 1)
-    worker_running = false
+    execute_block(work_item)
+    track_execution(t1)
+    table.remove(processing_queue, 1)
+    worker_busy = false
 end
 
--- Adds a mapchunk to the work queue for a specific worker.
--- If the chunk is already in the queue, adds the worker to its worker list.
--- hash: Mapchunk hash to add to the work queue.
--- worker_name: Name of the worker that should process this chunk.
-local function add_to_work_queue(hash, worker_name)
-    local exists = false
-    for _, chunk in pairs(work_queue) do
-        if chunk.hash == hash then
-            chunk.workers[worker_name] = true
-            exists = true
-            break
+-- Enqueues a mapblock for processing by specific worker
+local function enqueue_block(block_hash, blockpos, worker_id, priority_level)
+    for idx, item in pairs(processing_queue) do
+        if item.block_hash == block_hash then
+            item.workers[worker_id] = true
+            -- Update priority if needed
+            if priority_level == "active" and item.priority ~= "active" then
+                item.priority = "active"
+                -- Move to front section
+                table.remove(processing_queue, idx)
+                local insert_pos = 1
+                for i, qi in ipairs(processing_queue) do
+                    if qi.priority ~= "active" then
+                        insert_pos = i
+                        break
+                    end
+                    insert_pos = i + 1
+                end
+                table.insert(processing_queue, insert_pos, item)
+            end
+            return
         end
     end
-    if not exists then
-        local chunk = {hash = hash,
-                       workers = {}}
-        chunk.workers[worker_name] = true
-        table.insert(work_queue, chunk)
+    
+    local work_item = {
+        block_hash = block_hash,
+        blockpos = blockpos,
+        workers = {},
+        priority = priority_level
+    }
+    work_item.workers[worker_id] = true
+    
+    -- Insert based on priority
+    if priority_level == "active" then
+        -- Find first loaded item or end
+        local insert_pos = 1
+        for i, item in ipairs(processing_queue) do
+            if item.priority ~= "active" then
+                insert_pos = i
+                break
+            end
+            insert_pos = i + 1
+        end
+        table.insert(processing_queue, insert_pos, work_item)
+    else
+        table.insert(processing_queue, work_item)
     end
 end
 
--- Checks if labels have "baked" (aged) beyond a certain time threshold.
--- Used to determine if enough time has passed since label creation/modification.
--- labels: Table of label objects.
--- time: Time threshold in game seconds.
--- Returns true if at least one label has elapsed time greater than the threshold.
-local function labels_baked(labels, time)
+-- Checks if labels have aged beyond threshold
+local function labels_aged(labels, threshold)
     for _, label in pairs(labels) do
-        if label:elapsed_time() > time then
+        if label:elapsed_time() > threshold then
             return true
         end
     end
     return false
 end
 
--- Determines if a mapchunk is suitable for a specific worker.
--- Checks label requirements (needed_labels, has_one_of) and timing (work_every).
--- hash: Mapchunk hash to check.
--- worker: Worker object to check against.
--- Returns true if the worker should process this mapchunk.
-local function good_for_worker(hash, worker)
-    local work_every = worker.work_every
-    local ls = ms.label_store.new(hash)
+-- Determines if a block is suitable for a worker
+local function block_fits_worker(block_hash, blockpos, worker)
+    local interval = worker.work_every
+    local ls = ms.label_store.new(block_hash, blockpos)
     if not (ls:contains_labels(worker.needed_labels) and
             ls:has_one_of(worker.has_one_of)) then
         return false
     end
-    if work_every then
+    if interval then
         local timer_labels = ls:filter_labels(worker.rework_labels)
         if not timer_labels then
-            -- Bootstrap first run for workers with circular dependencies
             return true
         end
-        return labels_baked(timer_labels, work_every)
+        return labels_aged(timer_labels, interval)
     end
     return true
 end
 
--- Checks if a mapchunk should be processed by any workers and adds it to the work queue.
--- Part of the player tracker system.
--- hash: Mapchunk hash to check and potentially add to work queue.
-local function save_and_work(hash)
-    for _, worker in pairs(workers) do
-        if good_for_worker(hash, worker) then
-            add_to_work_queue(hash, worker.name)
+-- Evaluates and enqueues block for workers
+local function evaluate_and_enqueue(block_hash, blockpos, priority_level)
+    for _, worker in pairs(worker_registry) do
+        if block_fits_worker(block_hash, blockpos, worker) then
+            enqueue_block(block_hash, blockpos, worker.name, priority_level)
         end
     end
 end
 
--- Tracks player positions and adds nearby loaded mapchunks to the work queue.
--- Runs periodically to discover mapchunks in players' neighborhoods.
--- Checks if mapchunks are loaded before adding them to the work queue.
-local function player_tracker()
-    local players = core.get_connected_players()
-    for _, player in pairs(players) do
-        local pos = player:get_pos()
-        if not pos then
-            return
-        end
-        local hash = ms.mapchunk_hash(pos)
-        local neighbors = ms.neighboring_mapchunks(hash)
-        for _, neighbor in pairs(neighbors) do
-            local pos_min, pos_max = ms.mapchunk_min_max(neighbor)
-            if ms.loaded_or_active(pos_min) then
-                save_and_work(neighbor)
-            end
-        end
-    end
-end
+-- Block activation callback - highest priority
+core.register_on_block_activated(function(blockpos)
+    local block_hash = core.hash_node_position(blockpos)
+    active_registry[block_hash] = blockpos
+    evaluate_and_enqueue(block_hash, blockpos, "active")
+end)
 
-local tracker_timer = 6
-local tracker_interval = 10
-
--- Globalstep callback that runs the player tracker at regular intervals.
--- dtime: Delta time since last call.
-local function player_tracker_loop(dtime)
-    tracker_timer = tracker_timer + dtime
-    if tracker_timer > tracker_interval then
-        tracker_timer = 0
-        player_tracker()
+-- Block loaded callback - lower priority
+core.register_on_block_loaded(function(blockpos)
+    local block_hash = core.hash_node_position(blockpos)
+    if not active_registry[block_hash] then
+        loaded_registry[block_hash] = blockpos
+        evaluate_and_enqueue(block_hash, blockpos, "loaded")
     end
-end
+end)
+
+-- Block deactivation callback
+core.register_on_block_deactivated(function(blockpos_list)
+    for _, blockpos in ipairs(blockpos_list) do
+        local block_hash = core.hash_node_position(blockpos)
+        active_registry[block_hash] = nil
+        loaded_registry[block_hash] = blockpos
+    end
+end)
+
+-- Block unloaded callback
+core.register_on_block_unloaded(function(blockpos_list)
+    for _, blockpos in ipairs(blockpos_list) do
+        local block_hash = core.hash_node_position(blockpos)
+        loaded_registry[block_hash] = nil
+    end
+end)
 
 ------------------------------------------------------------------
--- Here the trackers is started
+-- Here the shepherd is started
 ------------------------------------------------------------------
 
--- Only start the shepherd if the database format is correct and
--- chunksize did not change.
+-- Only start the shepherd if the database format is correct
 if ms.ensure_compatibility() then
-    -- Start the tracker
-    core.register_globalstep(player_tracker_loop)
-    core.register_globalstep(run_workers)
+    core.register_globalstep(execute_cycle)
 end
 
 core.register_chatcommand(
@@ -306,42 +303,54 @@ core.register_chatcommand(
         privs = {},
         func = function(name, param)
             local worker_names = {}
-            for _, worker in pairs(workers) do
+            for _, worker in pairs(worker_registry) do
                 table.insert(worker_names, worker.name)
             end
             worker_names = core.serialize(worker_names)
             worker_names = worker_names:gsub("return ", "")
-            local nr_of_chunks = ms.tracked_chunk_counter()
-            local tracked_chunks_status = S("Tracked chunks: ")..nr_of_chunks
-            local work_queue_status = S("Work queue: ")..#work_queue
-            local work_time_status = S("Working time: ")..
-                S("Min: ")..math.ceil(min_working_time).." ms | "..
-                S("Max: ")..math.ceil(max_working_time).." ms | "..
-                S("Moving median: ")..get_median_working_time().." ms | "..
-                S("Moving average: ")..get_average_working_time().." ms"
+            local nr_of_blocks = ms.tracked_block_counter()
+            local tracked_status = S("Tracked blocks: ")..nr_of_blocks
+            local queue_status = S("Work queue: ")..#processing_queue
+            local active_count = 0
+            for _ in pairs(active_registry) do
+                active_count = active_count + 1
+            end
+            local loaded_count = 0
+            for _ in pairs(loaded_registry) do
+                loaded_count = loaded_count + 1
+            end
+            local blocks_status = S("Active blocks: ")..active_count.." | "..
+                S("Loaded blocks: ")..loaded_count
+            local time_status = S("Working time: ")..
+                S("Min: ")..math.ceil(shortest_execution).." ms | "..
+                S("Max: ")..math.ceil(longest_execution).." ms | "..
+                S("Moving median: ")..compute_median_execution().." ms | "..
+                S("Moving average: ")..compute_mean_execution().." ms"
             local worker_status = S("Workers: ")..worker_names
-            return true, tracked_chunks_status.."\n"..
-                work_queue_status.."\n"..work_time_status.."\n"..
+            return true, tracked_status.."\n"..
+                queue_status.."\n"..blocks_status.."\n"..time_status.."\n"..
                 worker_status.."\n"
         end,
 })
 
 core.register_chatcommand(
-    "chunk_labels", {
-        description = S("Prints labels of the chunk where the player stands."),
+    "block_labels", {
+        description = S("Prints labels of the block where the player stands."),
         privs = {},
         func = function(name, param)
             local player = core.get_player_by_name(name)
             local pos = player:get_pos()
-            local hash = ms.mapchunk_hash(pos)
-            local ls = ms.label_store.new(hash)
+            local blockpos = ms.units.mapblock_coords(pos)
+            local block_hash = core.hash_node_position(blockpos)
+            local ls = ms.label_store.new(block_hash, blockpos)
             local labels = ls:get_labels()
-            local last_changed = ms.time_since_last_change(hash)
+            local last_changed = ms.time_since_last_change(block_hash, blockpos)
             local label_string = ""
             for _, label in pairs(labels) do
                 label_string = label_string..label:description()..", "
             end
-            return true, S("hash: ")..hash.."\n"
+            return true, S("blockpos: ")..core.pos_to_string(blockpos).."\n"
+                ..S("hash: ")..block_hash.."\n"
                 ..S("last changed: ")..last_changed..S(" seconds ago").."\n"
                 ..S("labels: ")..label_string.."\n "
         end,

@@ -21,24 +21,27 @@
     =============================
 
     This file manages the Mapchunk Shepherd database stored in mod storage.
-    The database tracks mapchunks and their labels.
+    The database tracks mapblocks and their labels.
 
     DATABASE FORMAT VERSION 1 (Current)
     -----------------------------------
 
     Mod Storage Keys:
     1. "shepherd_db_version" (integer) - The version of the database format
-    2. "chunksize" (integer) - The mapchunk size setting (in mapblocks)
-    3. "<mapchunk_hash>" (string) - Serialized label data for each mapchunk
-       - Hash is obtained via core.hash_node_position(mapchunk_min_pos)
+    2. "block_<storage_hash>" (string) - Serialized label data for each mapblock
+       - storage_hash is an internal base64-encoded position (private format)
        - Value is core.serialize of an array of {tag, timestamp} pairs
-       - Example: "return {{\"chunk_tracked\", 1234}, {\"scanned\", 5678}}"
+       - Example: "return {{\"block_tracked\", 1234}, {\"scanned\", 5678}}"
 
     Labels Format:
-    - Each mapchunk can have multiple labels
+    - Each mapblock can have multiple labels
     - Each label consists of:
-      * tag (string): describes mapchunk property (e.g., "chunk_tracked", "scanned")
+      * tag (string): describes mapblock property (e.g., "block_tracked", "scanned")
       * timestamp (integer): game time when label was created/modified
+
+    Public API:
+    - Always uses core.hash_node_position(blockpos) for block identification
+    - Internal storage uses private hash format for compatibility
 
     Future Database Versions:
     - Version 2+: To be defined when breaking changes are needed
@@ -54,7 +57,7 @@ local mod_storage = core.get_mod_storage()
 
 -- Returns version of the Mapchunk Shepherd mod
 function ms.mod_version()
-    return "0.0.1"
+    return "0.0.2"
 end
 
 ms.database = {}
@@ -100,7 +103,7 @@ function ms.database.too_new()
 end
 
 -- Removes *ALL* keys stored in mod storage for the shepherd.
--- WARNING: This permanently deletes all mapchunk data!
+-- WARNING: This permanently deletes all mapblock data!
 -- Only call this for fresh initialization or when explicitly requested.
 function ms.database.purge()
     core.log("warning", "Mapchunk Shepherd: Purging all database keys from mod storage.")
@@ -110,7 +113,7 @@ function ms.database.purge()
 end
 
 -- Initializes a fresh database. This should only be called for new worlds
--- or when mod storage is empty. Sets version and chunksize.
+-- or when mod storage is empty. Sets version.
 function ms.database.initialize()
     if not ms.database.valid() then
         -- Only purge if we're really starting fresh (version is 0)
@@ -118,31 +121,9 @@ function ms.database.initialize()
             ms.database.purge()
         end
         ms.database.update_version()
-        ms.database.update_chunksize()
         core.log("action", "Mapchunk Shepherd: Database initialized with version "..
-                     ms.database.version().." and chunksize "..sizes.mapchunk.in_mapblocks..".")
+                     ms.database.version()..".")
     end
-end
-
--- Returns the chunksize stored in mod storage.
--- Returns 0 if not set (uninitialized database).
-function ms.database.chunksize()
-    return mod_storage:get_int("chunksize")
-end
-
--- Updates the chunksize stored in the database to the current
--- chunksize.
-function ms.database.update_chunksize()
-    mod_storage:set_int("chunksize", sizes.mapchunk.in_mapblocks)
-end
-
--- Checks if the chunksize stored in the database is different from
--- the chunksize which is active in mapgen.
--- Returns false if chunksize is not set (0) - meaning fresh database.
-function ms.chunksize_changed()
-    local stored_chunksize = ms.database.chunksize()
-    -- If chunksize is 0, database is uninitialized, so no change occurred
-    return stored_chunksize ~= 0 and stored_chunksize ~= sizes.mapchunk.in_mapblocks
 end
 
 -- Database format conversion functions
@@ -199,35 +180,6 @@ function ms.ensure_compatibility()
         return false
     end
     
-    -- Check if chunksize changed (only relevant for initialized databases)
-    if ms.chunksize_changed() then
-        local stored_chunksize = ms.database.chunksize()
-        local stored_version = ms.database.stored_version()
-        
-        -- Special case: migrate from old format where chunksize was stored in nodes (80)
-        -- to new format where chunksize is stored in mapblocks (5)
-        -- This only applies to databases with version < 1 and stored_chunksize of 80
-        if stored_chunksize == 80 and stored_version < 1 then
-            core.log("action", "Mapchunk Shepherd: Detected legacy chunksize format (80 nodes).")
-            core.log("action", "Mapchunk Shepherd: Migrating to new format with chunksize "..
-                         sizes.mapchunk.in_mapblocks.." mapblocks.")
-            ms.database.update_chunksize()
-            -- Continue with normal initialization/conversion flow
-        else
-            -- Regular chunksize change error
-            core.log("error", "Mapchunk Shepherd: Chunksize changed from "..
-                         stored_chunksize.." to "..sizes.mapchunk.in_mapblocks..".")
-            core.log("error", "Mapchunk Shepherd: Changing chunksize invalidates all stored mapchunk data.")
-            core.log("error", "Mapchunk Shepherd: Stored labels use mapchunk hashes based on old chunksize,")
-            core.log("error", "Mapchunk Shepherd: which would cause data corruption and incorrect behavior.")
-            core.log("error", "Mapchunk Shepherd: To use the new chunksize, you must:")
-            core.log("error", "Mapchunk Shepherd:   1. Delete the mod storage for this mod (typically <worlddir>/mod_storage_<modname>)")
-            core.log("error", "Mapchunk Shepherd:   2. Or restore the old chunksize setting")
-            core.log("error", "Mapchunk Shepherd: Refusing to start.")
-            return false
-        end
-    end
-    
     -- Initialize fresh database if needed
     ms.database.initialize()
     
@@ -242,7 +194,6 @@ function ms.ensure_compatibility()
     end
     
     core.log("action", "Mapchunk Shepherd: Database compatibility check passed.")
-    core.log("action", "Mapchunk Shepherd: Using database version "..ms.database.version()..
-                 " with chunksize "..sizes.mapchunk.in_mapblocks..".")
+    core.log("action", "Mapchunk Shepherd: Using database version "..ms.database.version()..".")
     return true
 end

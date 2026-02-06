@@ -28,8 +28,7 @@ local placeholder_id_finder_pairs = {}
 local ignore_id = core.get_content_id("ignore")
 local air_id = core.get_content_id("air")
 
-local blocks_per_chunk = tonumber(core.get_mapgen_setting("chunksize"))
-local chunk_side = blocks_per_chunk * 16
+local block_side = 16
 
 -- iterate over ids of all possible existing nodes
 for i = 1, 32768 do
@@ -52,8 +51,8 @@ function ms.placeholder_id_finder_pairs()
 end
 
 -- fun needs to be a function fun(pos_min, pos_max, vm_data, chance)
--- where pos_min is minimal position in a mapchunk,
--- pos_max is maximal position in a mapchunk,
+-- where pos_min is minimal position in a mapblock,
+-- pos_max is maximal position in a mapblock,
 -- vm_data is a table containing {nodes, param2, light} arrays,
 -- chance is a probability value (0.0 to 1.0) for probabilistic replacements.
 -- fun() needs to return: labels_to_add, labels_to_remove, light_changed, param2_changed
@@ -136,27 +135,29 @@ function worker:unregister()
     ms.remove_worker(self.name)
 end
 
--- Runs the worker function on a mapchunk.
+-- Runs the worker function on a mapblock.
 -- If catch_up is enabled, adjusts the chance based on missed work cycles.
--- pos_min: Minimum position of the mapchunk.
--- pos_max: Maximum position of the mapchunk.
+-- pos_min: Minimum position of the mapblock.
+-- pos_max: Maximum position of the mapblock.
 -- vm_data: VoxelManip data table {nodes, param2, light}.
 -- Returns: labels_to_add, labels_to_remove, light_changed, param2_changed.
 function worker:run(pos_min, pos_max, vm_data)
     if self.catch_up then
-        local hash = ms.mapchunk_hash(pos_min)
-        local new_chance = self:run_catch_up(hash, self.chance)
+        local blockpos = ms.units.mapblock_coords(pos_min)
+        local block_hash = core.hash_node_position(blockpos)
+        local new_chance = self:run_catch_up(block_hash, blockpos, self.chance)
         return self.fun(pos_min, pos_max, vm_data, new_chance)
     end
     return self.fun(pos_min, pos_max, vm_data, self.chance)
 end
 
 -- Basic catch-up logic that increases chance based on missed work cycles.
--- hash: Mapchunk hash.
+-- block_hash: Mapblock hash.
+-- blockpos: Mapblock position.
 -- chance: Base chance value.
 -- Returns: Adjusted chance value based on elapsed time since last work.
-function worker:basic_catch_up(hash, chance)
-    local labels = ms.get_labels(hash)
+function worker:basic_catch_up(block_hash, blockpos, chance)
+    local labels = ms.get_labels(block_hash, blockpos)
     local elapsed = ms.labels.oldest_elapsed_time(labels, self.rework_labels)
     if elapsed == 0 then
         return chance
@@ -168,22 +169,24 @@ end
 
 -- Runs the catch-up function to adjust chance for missed work cycles.
 -- Uses custom catch_up_function if provided, otherwise uses basic_catch_up.
--- hash: Mapchunk hash.
+-- block_hash: Mapblock hash.
+-- blockpos: Mapblock position.
 -- chance: Base chance value.
 -- Returns: Adjusted chance value.
-function worker:run_catch_up(hash, chance)
+function worker:run_catch_up(block_hash, blockpos, chance)
     if self.catch_up_function then
-        return self.catch_up_function(hash, chance)
+        return self.catch_up_function(block_hash, blockpos, chance)
     end
-    return self:basic_catch_up(hash, chance)
+    return self:basic_catch_up(block_hash, blockpos, chance)
 end
 
 -- Runs the afterworker callback if defined.
--- Called after the worker has completed processing a mapchunk.
--- hash: Mapchunk hash that was processed.
-function worker:run_afterworker(hash)
+-- Called after the worker has completed processing a mapblock.
+-- block_hash: Mapblock hash that was processed.
+-- blockpos: Mapblock position that was processed.
+function worker:run_afterworker(block_hash, blockpos)
     if self.afterworker then
-        self.afterworker(hash)
+        self.afterworker(block_hash, blockpos)
     end
 end
 
@@ -390,7 +393,7 @@ function ms.create_light_aware_top_placer(args)
             local find_id = find_ids[data[i]]
             if find_id then
                 if data[i] == find_id then
-                    local above_index = i + chunk_side
+                    local above_index = i + block_side
                     local replacement = replace_ids[data[above_index]]
                     if data_light[above_index] and
                         data_light[above_index] > higher_than and
@@ -492,10 +495,10 @@ function ms.create_neighbor_aware_replacer(args)
             if replacement then
                 if neighbor_ids[data[i - 1]] or
                     neighbor_ids[data[i + 1]] or
-                    neighbor_ids[data[i - chunk_side]] or
-                    neighbor_ids[data[i + chunk_side]] or
-                    neighbor_ids[data[i - chunk_side^2]] or
-                    neighbor_ids[data[i + chunk_side^2]] then
+                    neighbor_ids[data[i - block_side]] or
+                    neighbor_ids[data[i + block_side]] or
+                    neighbor_ids[data[i - block_side^2]] or
+                    neighbor_ids[data[i + block_side^2]] then
                     if chance >= math.random() then
                         data[i] = replacement
                     end
@@ -514,12 +517,12 @@ function ms.create_neighbor_aware_replacer(args)
     end
 end
 
--- Creates a decoration finder that labels mapchunks during mapgen.
--- Registers callbacks to detect decorations and add labels to mapchunks.
+-- Creates a decoration finder that labels mapblocks during mapgen.
+-- Registers callbacks to detect decorations and add labels to mapblocks.
 -- args: Configuration table:
 --   - deco_list (table): List of {name=decoration_name, schematic=path_or_nil}
---   - add_labels (table): Labels to add to mapchunks with these decorations
---   - remove_labels (table): Labels to remove from mapchunks with these decorations
+--   - add_labels (table): Labels to add to mapblocks with these decorations
+--   - remove_labels (table): Labels to remove from mapblocks with these decorations
 -- Note: This function registers callbacks and doesn't return anything.
 function ms.create_deco_finder(args)
     local args = table.copy(args)
@@ -541,9 +544,10 @@ function ms.create_deco_finder(args)
                 if #pos_list <= 0 then
                     return
                 end
-                local hash = ms.mapchunk_hash(minp)
+                local blockpos = ms.units.mapblock_coords(minp)
+                local block_hash = core.hash_node_position(blockpos)
                 if not corners then
-                    local ls = ms.label_store.new(hash)
+                    local ls = ms.label_store.new(block_hash, blockpos)
                     ls:mark_for_addition(labels_to_add)
                     ls:mark_for_removal(labels_to_remove)
                     ls:save_to_disk()
@@ -558,8 +562,9 @@ function ms.create_deco_finder(args)
                         wide = vector.floor(wide)
                         wide = vector.subtract(wide, 1)
                         local corner_pos = vector.add(pos, wide)
-                        local corner_hash = ms.mapchunk_hash(corner_pos)
-                        local ls = label_stores[corner_hash] or ms.label_store.new(corner_hash)
+                        local corner_blockpos = ms.units.mapblock_coords(corner_pos)
+                        local corner_hash = core.hash_node_position(corner_blockpos)
+                        local ls = label_stores[corner_hash] or ms.label_store.new(corner_hash, corner_blockpos)
                         label_stores[corner_hash] = ls
                         ls:mark_for_addition(labels_to_add)
                         ls:mark_for_removal(labels_to_remove)
