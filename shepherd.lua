@@ -59,7 +59,6 @@ local vm_data = {
 -- Process a single block with all applicable workers
 local function process_block(block_item)
     local blockpos = block_item.pos
-    local block_hash = block_item.hash
     local pos_min, pos_max = ms.mapblock_min_max(blockpos)
     local vm = VoxelManip()
     vm:read_from_map(pos_min, pos_max)
@@ -68,11 +67,11 @@ local function process_block(block_item)
     vm:get_light_data(vm_data.light)
     local needs_light_update = false
     local needs_param2_update = false
-    local label_mgr = ms.label_store.new(block_hash, blockpos)
+    local label_mgr = ms.label_store.new(blockpos)
     
     -- Run all applicable workers on this block
     for _, worker in pairs(all_workers) do
-        if block_matches_worker(block_hash, blockpos, worker) then
+        if block_matches_worker(blockpos, worker) then
             local add_tags, remove_tags, light_changed, param2_changed =
                 worker:run(pos_min, pos_max, vm_data)
             label_mgr:mark_for_addition(add_tags)
@@ -99,8 +98,8 @@ local function process_block(block_item)
     
     -- Run afterworker callbacks
     for _, worker in pairs(all_workers) do
-        if block_matches_worker(block_hash, blockpos, worker) then
-            worker:run_afterworker(block_hash, blockpos)
+        if block_matches_worker(blockpos, worker) then
+            worker:run_afterworker(blockpos)
         end
     end
 end
@@ -192,9 +191,9 @@ local function any_label_exceeds_age(labels, threshold)
 end
 
 -- Determines if a block matches worker criteria
-local function block_matches_worker(block_hash, blockpos, worker)
+local function block_matches_worker(blockpos, worker)
     local interval = worker.work_every
-    local ls = ms.label_store.new(block_hash, blockpos)
+    local ls = ms.label_store.new(blockpos)
     if not (ls:contains_labels(worker.needed_labels) and
             ls:has_one_of(worker.has_one_of)) then
         return false
@@ -211,7 +210,8 @@ end
 
 -- Add block to queue with priority handling
 -- Active blocks go to front, loaded blocks go to end
-local function add_block_to_queue(block_hash, blockpos, is_active)
+local function add_block_to_queue(blockpos, is_active)
+    local block_hash = core.hash_node_position(blockpos)
     -- Skip if already in queue
     if block_in_queue[block_hash] then
         return
@@ -235,9 +235,9 @@ local function add_block_to_queue(block_hash, blockpos, is_active)
 end
 
 -- Check if block needs processing by any worker
-local function block_needs_work(block_hash, blockpos)
+local function block_needs_work(blockpos)
     for _, worker in pairs(all_workers) do
-        if block_matches_worker(block_hash, blockpos, worker) then
+        if block_matches_worker(blockpos, worker) then
             return true
         end
     end
@@ -248,8 +248,8 @@ end
 core.register_on_block_activated(function(blockpos)
     local block_hash = core.hash_node_position(blockpos)
     active_blocks[block_hash] = true
-    if block_needs_work(block_hash, blockpos) then
-        add_block_to_queue(block_hash, blockpos, true)
+    if block_needs_work(blockpos) then
+        add_block_to_queue(blockpos, true)
     end
 end)
 
@@ -258,8 +258,8 @@ core.register_on_block_loaded(function(blockpos)
     local block_hash = core.hash_node_position(blockpos)
     if not active_blocks[block_hash] then
         loaded_blocks[block_hash] = true
-        if block_needs_work(block_hash, blockpos) then
-            add_block_to_queue(block_hash, blockpos, false)
+        if block_needs_work(blockpos) then
+            add_block_to_queue(blockpos, false)
         end
     end
 end)
@@ -336,9 +336,9 @@ core.register_chatcommand(
             local pos = player:get_pos()
             local blockpos = ms.units.mapblock_coords(pos)
             local block_hash = core.hash_node_position(blockpos)
-            local ls = ms.label_store.new(block_hash, blockpos)
+            local ls = ms.label_store.new(blockpos)
             local labels = ls:get_labels()
-            local last_changed = ms.time_since_last_change(block_hash, blockpos)
+            local last_changed = ms.time_since_last_change(blockpos)
             local label_string = ""
             for _, label in pairs(labels) do
                 label_string = label_string..label:description()..", "

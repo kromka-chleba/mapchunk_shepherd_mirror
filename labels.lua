@@ -122,8 +122,8 @@ function label.decode(encoded)
 end
 
 -- Helper function to get labels for a block
-function ms.get_labels(block_hash, blockpos)
-    local ls = ms.label_store.new(block_hash, blockpos)
+function ms.get_labels(blockpos)
+    local ls = ms.label_store.new(blockpos)
     return ls:get_labels()
 end
 
