@@ -74,6 +74,13 @@ The scanners iterate over all mapblocks within each generated mapchunk.
 More efficient than post-generation scanning because it uses mapgen data directly.
 Use cases include finding surface blocks by detecting surface-only decorations or specific biomes.
 
+For schematic decorations, the decoration finder calculates corners that match the engine's placement
+logic, accounting for rotation and centering flags. This ensures all mapblocks potentially containing
+parts of multi-node decorations are correctly labeled. The corner calculation handles:
+  - Rotation (0°, 90°, 180°, 270°) with dimension swapping for 90°/270°
+  - Centering flags (place_center_x/y/z) with proper offset calculations
+  - place_offset_y for non-centered Y placement
+
 * Worker:
 A Voxel Manipulator-based function that modifies mapblocks based on their labels.
 Workers are registered with ms.worker.new() and can specify:
