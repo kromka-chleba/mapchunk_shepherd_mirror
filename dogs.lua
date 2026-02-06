@@ -314,7 +314,7 @@ function ms.create_light_aware_replacer(args)
         for i = 1, #data do
             local replacement = ids[data[i]]
             if replacement then
-                local above_index = i + chunk_side
+                local above_index = i + block_side
                 local random_pick = false
                 if not data_light[above_index] then
                     above_index = i
@@ -616,7 +616,7 @@ function ms.create_deco_finder(args)
                     return
                 end
                 -- If no schematic (simple decoration), label all mapblocks
-                -- that contain any decoration instance in this mapchunk
+                -- that contain any decoration instance from the generated mapchunk
                 if not corners then
                     local label_stores = {}
                     for _, pos in pairs(pos_list) do
