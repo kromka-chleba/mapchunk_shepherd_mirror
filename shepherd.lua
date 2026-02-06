@@ -54,9 +54,8 @@ local mod_storage = core.get_mod_storage()
 --]]
 local global_vm_cache = {}
 
--- Block queue system - simplified design
--- Active blocks (high priority) are inserted at the front
--- Loaded blocks (low priority) are appended at the end
+-- Block queue system - FIFO processing
+-- All blocks are processed in the order they are loaded/activated
 local block_queue = {}
 local block_in_queue = {} -- Set to prevent duplicates: block_hash -> true
 local active_blocks = {} -- Tracks active block hashes
@@ -192,7 +191,10 @@ local function compute_median_execution()
     return math.ceil(median)
 end
 
--- Main processing loop - processes one block per call
+-- Main processing loop - processes multiple blocks per call with time budget
+-- Time budget: 10ms per frame to avoid lag spikes (assumes ~100 FPS target)
+local TIME_BUDGET_US = 10000  -- 10ms in microseconds
+
 local function execute_cycle(dtime)
     if currently_processing then
         return
@@ -213,31 +215,45 @@ local function execute_cycle(dtime)
         currently_processing = false
         return
     end
-    local block_item = block_queue[1]
-    if not block_item then
-        -- Queue is empty - clear cache to start fresh next round
-        if next(global_vm_cache) ~= nil then
-            -- Flush any modified blocks before clearing
-            for _, cached_block in pairs(global_vm_cache) do
-                if cached_block.nodes_modified or cached_block.param2_modified or cached_block.light_modified then
-                    -- Already flushed during processing, but just in case
-                end
-            end
-            global_vm_cache = {}
+    
+    local frame_start_time = core.get_us_time()
+    local blocks_processed = 0
+    
+    -- Process blocks until time budget exhausted or queue empty
+    while #block_queue > 0 do
+        local block_item = block_queue[1]
+        
+        -- Check time budget before processing next block
+        local elapsed_time = core.get_us_time() - frame_start_time
+        if blocks_processed > 0 and elapsed_time >= TIME_BUDGET_US then
+            -- Time budget exhausted, stop for this frame
+            break
         end
-        currently_processing = false
-        return
+        
+        local t1 = core.get_us_time()
+        process_block(block_item)
+        track_execution(t1)
+        table.remove(block_queue, 1)
+        block_in_queue[block_item.hash] = nil
+        blocks_processed = blocks_processed + 1
     end
-    local t1 = core.get_us_time()
-    process_block(block_item)
-    track_execution(t1)
-    table.remove(block_queue, 1)
-    block_in_queue[block_item.hash] = nil
+    
+    -- Queue is empty - clear cache to start fresh next round
+    if #block_queue == 0 and next(global_vm_cache) ~= nil then
+        -- Flush any modified blocks before clearing
+        for _, cached_block in pairs(global_vm_cache) do
+            if cached_block.nodes_modified or cached_block.param2_modified or cached_block.light_modified then
+                -- Already flushed during processing, but just in case
+            end
+        end
+        global_vm_cache = {}
+    end
+    
     currently_processing = false
 end
 
--- Add block to queue with priority handling
--- Active blocks go to front, loaded blocks go to end
+-- Add block to queue in load order (FIFO)
+-- All blocks are processed in the order they are loaded/activated
 local function add_block_to_queue(blockpos, is_active)
     local block_hash = core.hash_node_position(blockpos)
     -- Skip if already in queue
@@ -251,13 +267,8 @@ local function add_block_to_queue(blockpos, is_active)
         is_active = is_active
     }
     
-    if is_active then
-        -- Insert at front for active blocks (high priority)
-        table.insert(block_queue, 1, block_item)
-    else
-        -- Append at end for loaded blocks (low priority)
-        table.insert(block_queue, block_item)
-    end
+    -- Always append at end for FIFO processing
+    table.insert(block_queue, block_item)
     
     block_in_queue[block_hash] = true
 end
@@ -272,7 +283,7 @@ local function block_needs_work(blockpos)
     return false
 end
 
--- Block activation callback - add to queue with high priority
+-- Block activation callback - add to queue
 core.register_on_block_activated(function(blockpos)
     local block_hash = core.hash_node_position(blockpos)
     active_blocks[block_hash] = true
@@ -281,7 +292,7 @@ core.register_on_block_activated(function(blockpos)
     end
 end)
 
--- Block loaded callback - add to queue with low priority
+-- Block loaded callback - add to queue
 core.register_on_block_loaded(function(blockpos)
     local block_hash = core.hash_node_position(blockpos)
     if not active_blocks[block_hash] then

@@ -19,7 +19,7 @@ The Mapchunk Shepherd is a system responsible for:
 * Dynamic modification of the map based on labels
 * Workers can be registered and unregistered on the fly (unlike ABMs and LBMs)
 * Label once, modify multiple times using the same label data
-* **Processes ALL loaded blocks** (including those far from players) - unlike ABMs and LBMs which only process active blocks. Active blocks (close to players) are processed first for better responsiveness.
+* **Processes ALL loaded blocks** (including those far from players) - unlike ABMs and LBMs which only process active blocks. Blocks are processed in FIFO order as they are loaded.
 * Only processes specific mapblocks with matching labels (more targeted than ABMs and LBMs)
 * Supports mapgen-time labeling via decoration/biome detection
 * Database versioning and compatibility checking
@@ -35,16 +35,16 @@ The `core.register_on_generated()` callback operates on mapchunks, not individua
 Mapchunk size can be configured via the `chunksize` setting.
 
 * Active block:
-A mapblock that is close to a player (within the active_block_range). These blocks receive higher priority in the work queue.
+A mapblock that is close to a player (within the active_block_range).
 
 * Loaded block:
-A mapblock that is loaded in memory but may be far from players. These blocks receive lower priority than active blocks.
+A mapblock that is loaded in memory but may be far from players.
 
 * Block queue system:
-The work queue maintains two priority levels:
-  1. Active blocks (high priority) - processed first, as they're near players
-  2. Loaded blocks (low priority) - processed after active blocks
-This ensures that changes near players happen faster than changes far away.
+The work queue processes blocks in FIFO (first-in-first-out) order as they are loaded or activated.
+Multiple blocks are processed per frame (up to a time budget of 10ms) to ensure efficient processing
+of all loaded blocks, not just those near players. This ensures that world-wide changes (like season
+transitions) happen promptly across all loaded areas.
 
 * Block callbacks:
 Luanti provides four callbacks for tracking blocks:
@@ -161,19 +161,21 @@ The mod uses a versioned database format stored in mod storage. It includes:
 * Uses Luanti's standard hash format (core.hash_node_position) for the public API
 * Internal storage uses a private hash format for compatibility
 
-## Work Queue and Priority System
+## Work Queue and Processing System
 
-The work queue operates in two priority tiers to optimize performance:
+The work queue processes blocks in FIFO (first-in-first-out) order as they are loaded or activated:
 
-1. **Active Blocks (High Priority)**: Blocks close to players that need immediate attention.
-   These are processed first to ensure visible changes happen quickly.
+**Processing Strategy:**
+- Blocks are processed in the order they are loaded/activated
+- Multiple blocks are processed per frame (up to a time budget of 10ms)
+- This ensures efficient processing of all loaded blocks, including those far from players
+- World-wide changes (like season transitions) happen promptly across all loaded areas
 
-2. **Loaded Blocks (Low Priority)**: Blocks loaded in memory but far from players.
-   These are processed after all active blocks to avoid impacting gameplay.
-
-When a block is activated (player moves nearby), it's automatically promoted to high priority.
-When a block is deactivated (player moves away), it drops back to low priority.
-This ensures the shepherd focuses computational resources where players can see the results.
+**Performance:**
+- Time budget of 10ms per frame prevents lag spikes
+- With typical 1ms per-block processing time, ~10 blocks are processed per frame
+- At 20-30 FPS, this results in 200-300 blocks/second throughput
+- Much faster than the old 1-block-per-frame approach (~20-30 blocks/second)
 
 Workers can define "needed_labels" and "has_one_of" to filter which mapblocks they process.
 Workers can also define "work_every" to specify how often (in game time) they should re-process the same block.
