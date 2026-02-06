@@ -350,6 +350,7 @@ core.register_chatcommand(
             local queue_status = S("Block queue: ")..#block_queue
             
             -- Count blocks using core.loaded_blocks and core.active_blocks
+            -- Note: core.active_blocks is a subset of core.loaded_blocks
             local active_count = 0
             for _ in pairs(core.active_blocks) do
                 active_count = active_count + 1
@@ -358,9 +359,11 @@ core.register_chatcommand(
             for _ in pairs(core.loaded_blocks) do
                 loaded_count = loaded_count + 1
             end
+            local inactive_count = loaded_count - active_count
             
             local blocks_status = S("Active blocks: ")..active_count.." | "..
-                S("Total loaded blocks: ")..loaded_count
+                S("Loaded (inactive): ")..inactive_count.." | "..
+                S("Total loaded: ")..loaded_count
             local time_status = S("Processing time: ")..
                 S("Min: ")..math.ceil(min_process_time).." ms | "..
                 S("Max: ")..math.ceil(max_process_time).." ms | "..
