@@ -515,6 +515,11 @@ end
 
 -- Creates a decoration finder that labels mapblocks during mapgen.
 -- Registers callbacks to detect decorations and add labels to mapblocks.
+--
+-- IMPORTANT: on_generated returns a MAPCHUNK (typically 5x5x5 mapblocks),
+-- and decorations can be placed anywhere within that mapchunk. This function
+-- correctly handles this by using the actual decoration positions from gennotify.
+--
 -- args: Configuration table:
 --   - deco_list (table): List of {name=decoration_name, schematic=path_or_nil}
 --   - add_labels (table): Labels to add to mapblocks with these decorations
@@ -540,14 +545,27 @@ function ms.create_deco_finder(args)
                 if #pos_list <= 0 then
                     return
                 end
-                local blockpos = ms.units.mapblock_coords(minp)
+                -- If no schematic (simple decoration), label all mapblocks
+                -- that contain any decoration instance in this mapchunk
                 if not corners then
-                    local ls = ms.label_store.new(blockpos)
-                    ls:mark_for_addition(labels_to_add)
-                    ls:mark_for_removal(labels_to_remove)
-                    ls:save_to_disk()
+                    local label_stores = {}
+                    for _, pos in pairs(pos_list) do
+                        local blockpos = ms.units.mapblock_coords(pos)
+                        local block_hash = core.hash_node_position(blockpos)
+                        if not label_stores[block_hash] then
+                            local ls = ms.label_store.new(blockpos)
+                            label_stores[block_hash] = ls
+                            ls:mark_for_addition(labels_to_add)
+                            ls:mark_for_removal(labels_to_remove)
+                        end
+                    end
+                    for _, ls in pairs(label_stores) do
+                        ls:save_to_disk()
+                    end
                     return
                 end
+                -- For schematic decorations, label all mapblocks that might
+                -- be affected by any corner of the schematic
                 local label_stores = {}
                 for _, pos in pairs(pos_list) do
                     for _, corner in pairs(corners) do
