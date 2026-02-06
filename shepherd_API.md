@@ -724,7 +724,7 @@ Performance Considerations
 * Cache is cleared when the block queue becomes empty
 * VoxelManipulator operations are batched per mapblock for efficiency
 * Use `work_every` to limit how often blocks are re-processed
-* Use `chance` to randomly skip some processing for lighter load
+* Use `chance` to make node replacements probabilistic (note: this adds per-node overhead, not reduces it)
 
 
 Compatibility
