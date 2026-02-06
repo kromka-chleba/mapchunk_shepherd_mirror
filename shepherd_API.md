@@ -718,8 +718,8 @@ ms.worker.new({
 Performance Considerations
 ==========================
 
-* Workers are processed one mapblock at a time to avoid blocking
-* Active blocks (near players) are prioritized over loaded blocks
+* Mapblocks are processed one at a time to avoid blocking
+* Active blocks (near players) are prioritized over other loaded blocks
 * The global VM cache is shared across all workers in a processing round
 * Cache is cleared when the block queue becomes empty
 * VoxelManipulator operations are batched per mapblock for efficiency
