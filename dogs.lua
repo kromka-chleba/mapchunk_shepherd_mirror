@@ -616,7 +616,7 @@ function ms.create_deco_finder(args)
                     return
                 end
                 -- If no schematic (simple decoration), label all mapblocks
-                -- that contain any decoration instance in this mapchunk
+                -- that contain any decoration instance from the generated mapchunk
                 if not corners then
                     local label_stores = {}
                     for _, pos in pairs(pos_list) do
