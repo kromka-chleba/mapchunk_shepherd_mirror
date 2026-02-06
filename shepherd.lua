@@ -169,6 +169,19 @@ local function execute_cycle(dtime)
     worker_busy = false
 end
 
+-- Finds insertion position for a given priority level in the queue
+local function find_insert_position(priority_level)
+    if priority_level ~= "active" then
+        return #processing_queue + 1
+    end
+    for i, item in ipairs(processing_queue) do
+        if item.priority ~= "active" then
+            return i
+        end
+    end
+    return #processing_queue + 1
+end
+
 -- Enqueues a mapblock for processing by specific worker
 local function enqueue_block(block_hash, blockpos, worker_id, priority_level)
     for idx, item in pairs(processing_queue) do
@@ -177,20 +190,9 @@ local function enqueue_block(block_hash, blockpos, worker_id, priority_level)
             -- Update priority if needed
             if priority_level == "active" and item.priority ~= "active" then
                 item.priority = "active"
-                -- Move to front section
                 table.remove(processing_queue, idx)
-                local insert_pos = 1
-                for i, qi in ipairs(processing_queue) do
-                    if qi.priority ~= "active" then
-                        insert_pos = i
-                        break
-                    end
-                end
-                if insert_pos <= #processing_queue then
-                    table.insert(processing_queue, insert_pos, item)
-                else
-                    table.insert(processing_queue, item)
-                end
+                local insert_pos = find_insert_position("active")
+                table.insert(processing_queue, insert_pos, item)
             end
             return
         end
@@ -204,24 +206,8 @@ local function enqueue_block(block_hash, blockpos, worker_id, priority_level)
     }
     work_item.workers[worker_id] = true
     
-    -- Insert based on priority
-    if priority_level == "active" then
-        -- Find first loaded item or end
-        local insert_pos = 1
-        for i, item in ipairs(processing_queue) do
-            if item.priority ~= "active" then
-                insert_pos = i
-                break
-            end
-        end
-        if insert_pos <= #processing_queue then
-            table.insert(processing_queue, insert_pos, work_item)
-        else
-            table.insert(processing_queue, work_item)
-        end
-    else
-        table.insert(processing_queue, work_item)
-    end
+    local insert_pos = find_insert_position(priority_level)
+    table.insert(processing_queue, insert_pos, work_item)
 end
 
 -- Checks if labels have aged beyond threshold

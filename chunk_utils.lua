@@ -46,14 +46,13 @@ function ms.block_side()
     return sizes.mapblock.in_nodes
 end
 
--- Internal storage hash function (private, not for public API)
--- Uses a custom encoding format for internal database storage.
+-- Custom encoding for internal storage
 local function storage_hash(coords)
     local str = coords.x.."_"..coords.y.."_"..coords.z
     return core.encode_base64(str)
 end
 
--- Internal storage unhash function (private, not for public API)
+-- Decodes internal storage hash
 local function storage_unhash(hash)
     local decoded = core.decode_base64(hash)
     local a = decoded:split("_")
