@@ -172,3 +172,98 @@ Workers replace nodes on these mapblocks and assign/remove specific labels.
 Sometimes a worker can fail, usually when the mapblock contains "ignore" nodes.
 If a worker fails, it returns a "worker_failed" label which is assigned to the mapblock.
 The shepherd will retry failed blocks when they become active or loaded again.
+
+## Cross-Block Operations (Block Neighborhood)
+
+Many tasks require reading or writing nodes in neighboring mapblocks. For example:
+* Moisture spreading systems that move water between blocks
+* Particle effects or entity spawning at block boundaries
+* Terrain smoothing across block edges
+* Any simulation that needs to check conditions in adjacent blocks
+
+The `block_neighborhood` module provides an abstraction layer for these operations:
+
+### How It Works
+
+1. **Focal Block**: The primary block being processed (always loaded by the worker)
+2. **Peripheral Blocks**: Up to 26 neighboring blocks (loaded lazily on-demand)
+3. **Unified Coordinates**: Access nodes seamlessly across boundaries using world positions
+4. **Smart Caching**: Recently accessed neighbors stay in a retention pool (configurable size)
+5. **Automatic Flushing**: Modified neighbors are written back automatically
+
+### Using Block Neighborhood in Workers
+
+To create a worker that can access neighboring blocks:
+
+```lua
+local bn = mapchunk_shepherd.block_neighborhood
+
+-- Your worker function with an extra 'neighborhood' parameter
+local function my_cross_block_worker(pos_min, pos_max, vm_data, chance, neighborhood)
+    local world_pos = vector.add(pos_min, vector.new(8, 8, 8))  -- Center of focal block
+    
+    -- Read from a neighbor (automatically loads if needed)
+    local neighbor_pos = vector.add(world_pos, vector.new(20, 0, 0))  -- In +X neighbor
+    local neighbor_node = neighborhood:read_node(neighbor_pos)
+    
+    -- Write to a neighbor
+    if neighbor_node == some_air_id then
+        neighborhood:write_node(neighbor_pos, water_id)
+    end
+    
+    -- Get all 6 adjacent positions (helper for spreading tasks)
+    local adjacent = neighborhood:get_adjacent_positions(world_pos)
+    for _, adj_pos in ipairs(adjacent) do
+        -- Process adjacent positions even if they cross boundaries
+    end
+    
+    return labels_to_add, labels_to_remove, light_changed, param2_changed
+end
+
+-- Wrap the worker to enable neighborhood access
+local wrapped_fn = bn.wrap_worker_function(my_cross_block_worker, true)
+
+-- Register as normal
+local worker = mapchunk_shepherd.worker.new({
+    name = "cross_block_worker",
+    fun = wrapped_fn,
+    -- ... other parameters
+})
+worker:register()
+```
+
+### Block Neighborhood API
+
+Create a neighborhood accessor:
+```lua
+local neighborhood = bn.create(blockpos, vm_data)
+```
+
+Read/write operations:
+```lua
+-- Read node at world position
+local node_id = neighborhood:read_node(world_pos)
+
+-- Write node at world position (works across boundaries)
+neighborhood:write_node(world_pos, new_node_id)
+
+-- Read/write param2
+local param2 = neighborhood:read_param2(world_pos)
+neighborhood:write_param2(world_pos, new_param2)
+
+-- Get adjacent positions (6-connectivity)
+local adjacent = neighborhood:get_adjacent_positions(center_pos)
+
+-- Manually flush changes (usually automatic)
+local count = neighborhood:commit_all()
+```
+
+### Performance Considerations
+
+* Retention pool default: 10 peripheral blocks
+* LRU eviction: Oldest unused peripherals are flushed when pool is full
+* Lazy loading: Neighbors only loaded when first accessed
+* Modified peripherals are written back only once during commit
+
+See `example_neighbor_worker.lua` for a complete moisture spreading example.
+
