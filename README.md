@@ -19,7 +19,7 @@ The Mapchunk Shepherd is a system responsible for:
 * Dynamic modification of the map based on labels
 * Workers can be registered and unregistered on the fly (unlike ABMs and LBMs)
 * Label once, modify multiple times using the same label data
-* Prioritizes active blocks (close to players) over loaded blocks (far from players)
+* **Processes ALL loaded blocks** (including those far from players) - unlike ABMs and LBMs which only process active blocks. Active blocks (close to players) are processed first for better responsiveness.
 * Only processes specific mapblocks with matching labels (more targeted than ABMs and LBMs)
 * Supports mapgen-time labeling via decoration/biome detection
 * Database versioning and compatibility checking
