@@ -72,6 +72,34 @@ local vm_data = {
     light = {},
 }
 
+-- Checks if any labels have aged beyond the threshold
+local function any_label_exceeds_age(labels, threshold)
+    for _, label in pairs(labels) do
+        if label:elapsed_time() > threshold then
+            return true
+        end
+    end
+    return false
+end
+
+-- Determines if a block matches worker criteria
+local function block_matches_worker(blockpos, worker)
+    local interval = worker.work_every
+    local ls = ms.label_store.new(blockpos)
+    if not (ls:contains_labels(worker.needed_labels) and
+            ls:has_one_of(worker.has_one_of)) then
+        return false
+    end
+    if interval then
+        local timer_labels = ls:filter_labels(worker.rework_labels)
+        if not timer_labels then
+            return true
+        end
+        return any_label_exceeds_age(timer_labels, interval)
+    end
+    return true
+end
+
 -- Process a single block with all applicable workers
 local function process_block(block_item)
     local blockpos = block_item.pos
@@ -206,34 +234,6 @@ local function execute_cycle(dtime)
     table.remove(block_queue, 1)
     block_in_queue[block_item.hash] = nil
     currently_processing = false
-end
-
--- Checks if any labels have aged beyond the threshold
-local function any_label_exceeds_age(labels, threshold)
-    for _, label in pairs(labels) do
-        if label:elapsed_time() > threshold then
-            return true
-        end
-    end
-    return false
-end
-
--- Determines if a block matches worker criteria
-local function block_matches_worker(blockpos, worker)
-    local interval = worker.work_every
-    local ls = ms.label_store.new(blockpos)
-    if not (ls:contains_labels(worker.needed_labels) and
-            ls:has_one_of(worker.has_one_of)) then
-        return false
-    end
-    if interval then
-        local timer_labels = ls:filter_labels(worker.rework_labels)
-        if not timer_labels then
-            return true
-        end
-        return any_label_exceeds_age(timer_labels, interval)
-    end
-    return true
 end
 
 -- Add block to queue with priority handling
