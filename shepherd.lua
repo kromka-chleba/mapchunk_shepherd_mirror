@@ -31,101 +31,111 @@ local mod_storage = core.get_mod_storage()
 -- Main loops of the shepherd
 ---------------------------------------------------------------------
 
-local processing_queue = {}
-local active_registry = {}
-local loaded_registry = {}
+-- Block queue system - simplified design
+-- Active blocks (high priority) are inserted at the front
+-- Loaded blocks (low priority) are appended at the end
+local block_queue = {}
+local block_in_queue = {} -- Set to prevent duplicates: block_hash -> true
+local active_blocks = {} -- Tracks active block hashes
+local loaded_blocks = {} -- Tracks loaded block hashes
 
-local cycle_delay = 2
-local previous_cycle_failed = false
-local fast_cycle = 0.005
+local longer_break = 2
+local shorter_break = 0.005
 
-local worker_registry = {}
-local workers_indexed = {}
-local worker_busy = false
+local all_workers = {}
+local workers_by_name = {}
+local currently_processing = false
 
-local function release_worker()
-    worker_busy = false
+local function stop_processing()
+    currently_processing = false
 end
 
-local voxel_cache = {
+local vm_data = {
     nodes = {},
     param2 = {},
     light = {},
 }
 
--- Executes workers on a single mapblock using VoxelManipulator
-local function execute_block(work_item)
-    local blockpos = work_item.blockpos
-    local block_hash = work_item.block_hash
+-- Process a single block with all applicable workers
+local function process_block(block_item)
+    local blockpos = block_item.pos
+    local block_hash = block_item.hash
     local pos_min, pos_max = ms.mapblock_min_max(blockpos)
     local vm = VoxelManip()
     vm:read_from_map(pos_min, pos_max)
-    vm:get_data(voxel_cache.nodes)
-    vm:get_param2_data(voxel_cache.param2)
-    vm:get_light_data(voxel_cache.light)
-    local light_dirty = false
-    local param2_dirty = false
-    local ls = ms.label_store.new(block_hash, blockpos)
-    for worker_id, _ in pairs(work_item.workers) do
-        local worker = workers_indexed[worker_id]
-        local added_tags, removed_tags, light_mod, param2_mod =
-            worker:run(pos_min, pos_max, voxel_cache)
-        ls:mark_for_addition(added_tags)
-        ls:mark_for_removal(removed_tags)
-        if light_mod then
-            light_dirty = true
+    vm:get_data(vm_data.nodes)
+    vm:get_param2_data(vm_data.param2)
+    vm:get_light_data(vm_data.light)
+    local needs_light_update = false
+    local needs_param2_update = false
+    local label_mgr = ms.label_store.new(block_hash, blockpos)
+    
+    -- Run all applicable workers on this block
+    for _, worker in pairs(all_workers) do
+        if block_matches_worker(block_hash, blockpos, worker) then
+            local add_tags, remove_tags, light_changed, param2_changed =
+                worker:run(pos_min, pos_max, vm_data)
+            label_mgr:mark_for_addition(add_tags)
+            label_mgr:mark_for_removal(remove_tags)
+            if light_changed then
+                needs_light_update = true
+            end
+            if param2_changed then
+                needs_param2_update = true
+            end
         end
-        if param2_mod then
-            param2_dirty = true
-        end
     end
-    ls:save_to_disk()
-    vm:set_data(voxel_cache.nodes)
-    if light_dirty then
-        vm:set_light_data(voxel_cache.light)
+    
+    label_mgr:save_to_disk()
+    vm:set_data(vm_data.nodes)
+    if needs_light_update then
+        vm:set_light_data(vm_data.light)
     end
-    if param2_dirty then
-        vm:set_param2_data(voxel_cache.param2)
+    if needs_param2_update then
+        vm:set_param2_data(vm_data.param2)
     end
-    vm:write_to_map(light_dirty)
+    vm:write_to_map(needs_light_update)
     vm:update_liquids()
-    for worker_id, _ in pairs(work_item.workers) do
-        local worker = workers_indexed[worker_id]
-        worker:run_afterworker(block_hash, blockpos)
+    
+    -- Run afterworker callbacks
+    for _, worker in pairs(all_workers) do
+        if block_matches_worker(block_hash, blockpos, worker) then
+            worker:run_afterworker(block_hash, blockpos)
+        end
     end
 end
 
-local shortest_execution = math.huge
-local longest_execution = 0
-local execution_samples = {}
+local min_process_time = math.huge
+local max_process_time = 0
+local process_time_samples = {}
 
 local function track_execution(start_time)
     local elapsed = (core.get_us_time() - start_time) / 1000
-    if elapsed < shortest_execution then
-        shortest_execution = elapsed
+    if elapsed < min_process_time then
+        min_process_time = elapsed
     end
-    if elapsed > longest_execution then
-        longest_execution = elapsed
+    if elapsed > max_process_time then
+        max_process_time = elapsed
     end
-    table.insert(execution_samples, elapsed)
-    if #execution_samples > 100 then
-        table.remove(execution_samples, 1)
+    table.insert(process_time_samples, elapsed)
+    if #process_time_samples > 100 then
+        table.remove(process_time_samples, 1)
     end
 end
 
 local function compute_mean_execution()
     local total = 0
-    if #execution_samples == 0 then
+    if #process_time_samples == 0 then
         return 0
     end
-    for _, sample in pairs(execution_samples) do
+    for _, sample in pairs(process_time_samples) do
         total = total + sample
     end
-    return math.ceil(total / #execution_samples)
+    return math.ceil(total / #process_time_samples)
 end
 
 local function compute_median_execution()
-    local sorted = table.copy(execution_samples)
+    local sorted = table.copy(process_time_samples)
     table.sort(sorted)
     local median = 0
     if #sorted == 0 then
@@ -139,75 +149,36 @@ local function compute_median_execution()
     return math.ceil(median)
 end
 
--- Main worker execution cycle
+-- Main processing loop - processes one block per call
 local function execute_cycle(dtime)
-    if worker_busy then
+    if currently_processing then
         return
     end
-    worker_busy = true
+    currently_processing = true
     if ms.workers_changed then
-        worker_registry = ms.workers
-        workers_indexed = ms.workers_by_name
+        all_workers = ms.workers
+        workers_by_name = ms.workers_by_name
         ms.workers_changed = false
-        processing_queue = {}
-        core.after(cycle_delay, release_worker)
+        block_queue = {}
+        block_in_queue = {}
+        core.after(longer_break, stop_processing)
         return
     end
-    if #worker_registry == 0 then
-        core.after(cycle_delay, release_worker)
+    if #all_workers == 0 then
+        core.after(longer_break, stop_processing)
         return
     end
-    local work_item = processing_queue[1]
-    if not work_item then
-        core.after(fast_cycle, release_worker)
+    local block_item = block_queue[1]
+    if not block_item then
+        core.after(shorter_break, stop_processing)
         return
     end
     local t1 = core.get_us_time()
-    execute_block(work_item)
+    process_block(block_item)
     track_execution(t1)
-    table.remove(processing_queue, 1)
-    worker_busy = false
-end
-
--- Finds insertion position for a given priority level in the queue
-local function find_insert_position(priority_level)
-    if priority_level ~= "active" then
-        return #processing_queue + 1
-    end
-    for i, item in ipairs(processing_queue) do
-        if item.priority ~= "active" then
-            return i
-        end
-    end
-    return #processing_queue + 1
-end
-
--- Enqueues a mapblock for processing by specific worker
-local function enqueue_block(block_hash, blockpos, worker_id, priority_level)
-    for idx, item in pairs(processing_queue) do
-        if item.block_hash == block_hash then
-            item.workers[worker_id] = true
-            -- Update priority if needed
-            if priority_level == "active" and item.priority ~= "active" then
-                item.priority = "active"
-                table.remove(processing_queue, idx)
-                local insert_pos = find_insert_position("active")
-                table.insert(processing_queue, insert_pos, item)
-            end
-            return
-        end
-    end
-    
-    local work_item = {
-        block_hash = block_hash,
-        blockpos = blockpos,
-        workers = {},
-        priority = priority_level
-    }
-    work_item.workers[worker_id] = true
-    
-    local insert_pos = find_insert_position(priority_level)
-    table.insert(processing_queue, insert_pos, work_item)
+    table.remove(block_queue, 1)
+    block_in_queue[block_item.hash] = nil
+    currently_processing = false
 end
 
 -- Checks if any labels have aged beyond the threshold
@@ -220,8 +191,8 @@ local function any_label_exceeds_age(labels, threshold)
     return false
 end
 
--- Determines if a block is suitable for a worker
-local function block_fits_worker(block_hash, blockpos, worker)
+-- Determines if a block matches worker criteria
+local function block_matches_worker(block_hash, blockpos, worker)
     local interval = worker.work_every
     local ls = ms.label_store.new(block_hash, blockpos)
     if not (ls:contains_labels(worker.needed_labels) and
@@ -238,45 +209,76 @@ local function block_fits_worker(block_hash, blockpos, worker)
     return true
 end
 
--- Evaluates and enqueues block for workers
-local function evaluate_and_enqueue(block_hash, blockpos, priority_level)
-    for _, worker in pairs(worker_registry) do
-        if block_fits_worker(block_hash, blockpos, worker) then
-            enqueue_block(block_hash, blockpos, worker.name, priority_level)
-        end
+-- Add block to queue with priority handling
+-- Active blocks go to front, loaded blocks go to end
+local function add_block_to_queue(block_hash, blockpos, is_active)
+    -- Skip if already in queue
+    if block_in_queue[block_hash] then
+        return
     end
+    
+    local block_item = {
+        hash = block_hash,
+        pos = blockpos,
+        is_active = is_active
+    }
+    
+    if is_active then
+        -- Insert at front for active blocks (high priority)
+        table.insert(block_queue, 1, block_item)
+    else
+        -- Append at end for loaded blocks (low priority)
+        table.insert(block_queue, block_item)
+    end
+    
+    block_in_queue[block_hash] = true
 end
 
--- Block activation callback - highest priority
+-- Check if block needs processing by any worker
+local function block_needs_work(block_hash, blockpos)
+    for _, worker in pairs(all_workers) do
+        if block_matches_worker(block_hash, blockpos, worker) then
+            return true
+        end
+    end
+    return false
+end
+
+-- Block activation callback - add to queue with high priority
 core.register_on_block_activated(function(blockpos)
     local block_hash = core.hash_node_position(blockpos)
-    active_registry[block_hash] = blockpos
-    evaluate_and_enqueue(block_hash, blockpos, "active")
-end)
-
--- Block loaded callback - lower priority
-core.register_on_block_loaded(function(blockpos)
-    local block_hash = core.hash_node_position(blockpos)
-    if not active_registry[block_hash] then
-        loaded_registry[block_hash] = blockpos
-        evaluate_and_enqueue(block_hash, blockpos, "loaded")
+    active_blocks[block_hash] = true
+    if block_needs_work(block_hash, blockpos) then
+        add_block_to_queue(block_hash, blockpos, true)
     end
 end)
 
--- Block deactivation callback
+-- Block loaded callback - add to queue with low priority
+core.register_on_block_loaded(function(blockpos)
+    local block_hash = core.hash_node_position(blockpos)
+    if not active_blocks[block_hash] then
+        loaded_blocks[block_hash] = true
+        if block_needs_work(block_hash, blockpos) then
+            add_block_to_queue(block_hash, blockpos, false)
+        end
+    end
+end)
+
+-- Block deactivation callback - just update tracking
 core.register_on_block_deactivated(function(blockpos_list)
     for _, blockpos in ipairs(blockpos_list) do
         local block_hash = core.hash_node_position(blockpos)
-        active_registry[block_hash] = nil
-        loaded_registry[block_hash] = blockpos
+        active_blocks[block_hash] = nil
+        loaded_blocks[block_hash] = true
     end
 end)
 
--- Block unloaded callback
+-- Block unloaded callback - clean up tracking
 core.register_on_block_unloaded(function(blockpos_list)
     for _, blockpos in ipairs(blockpos_list) do
         local block_hash = core.hash_node_position(blockpos)
-        loaded_registry[block_hash] = nil
+        loaded_blocks[block_hash] = nil
+        active_blocks[block_hash] = nil
     end
 end)
 
@@ -291,31 +293,31 @@ end
 
 core.register_chatcommand(
     "shepherd_status", {
-        description = S("Prints status of the Mapchunk Shepherd."),
+        description = S("Prints status of the Mapblock Shepherd."),
         privs = {},
         func = function(name, param)
             local worker_names = {}
-            for _, worker in pairs(worker_registry) do
+            for _, worker in pairs(all_workers) do
                 table.insert(worker_names, worker.name)
             end
             worker_names = core.serialize(worker_names)
             worker_names = worker_names:gsub("return ", "")
             local nr_of_blocks = ms.tracked_block_counter()
             local tracked_status = S("Tracked blocks: ")..nr_of_blocks
-            local queue_status = S("Work queue: ")..#processing_queue
+            local queue_status = S("Block queue: ")..#block_queue
             local active_count = 0
-            for _ in pairs(active_registry) do
+            for _ in pairs(active_blocks) do
                 active_count = active_count + 1
             end
             local loaded_count = 0
-            for _ in pairs(loaded_registry) do
+            for _ in pairs(loaded_blocks) do
                 loaded_count = loaded_count + 1
             end
             local blocks_status = S("Active blocks: ")..active_count.." | "..
                 S("Loaded blocks: ")..loaded_count
-            local time_status = S("Working time: ")..
-                S("Min: ")..math.ceil(shortest_execution).." ms | "..
-                S("Max: ")..math.ceil(longest_execution).." ms | "..
+            local time_status = S("Processing time: ")..
+                S("Min: ")..math.ceil(min_process_time).." ms | "..
+                S("Max: ")..math.ceil(max_process_time).." ms | "..
                 S("Moving median: ")..compute_median_execution().." ms | "..
                 S("Moving average: ")..compute_mean_execution().." ms"
             local worker_status = S("Workers: ")..worker_names
