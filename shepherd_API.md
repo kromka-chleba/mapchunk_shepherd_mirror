@@ -10,7 +10,7 @@ based on labels and scheduling. It allows mods to:
 * Label mapblocks with tags during mapgen or runtime
 * Schedule processing of mapblocks based on their labels
 * Create workers that modify mapblocks with VoxelManipulators
-* **Process ALL loaded blocks** (including those far from players), unlike ABMs/LBMs which only process active blocks. Active blocks (near players) are processed first for better responsiveness.
+* **Process ALL loaded blocks** (including those far from players), unlike ABMs/LBMs which only process active blocks. Blocks are processed in FIFO order as they are loaded.
 * Access neighboring mapblocks for cross-boundary operations
 
 The mod uses Luanti's block callbacks (`core.register_on_block_loaded`, 
@@ -718,8 +718,8 @@ ms.worker.new({
 Performance Considerations
 ==========================
 
-* Mapblocks are processed one at a time to avoid blocking
-* Active blocks (near players) are prioritized over other loaded blocks
+* Multiple mapblocks are processed per frame (up to a 10ms time budget)
+* Blocks are processed in FIFO order as they are loaded/activated
 * The global VM cache is shared across all workers in a processing round
 * Cache is cleared when the block queue becomes empty
 * VoxelManipulator operations are batched per mapblock for efficiency
