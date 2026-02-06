@@ -38,6 +38,8 @@ ms.label = {}
 local label = ms.label
 label.__index = ms.label
 
+ms.labels = {}
+
 -- Checks if the tag was registered, asserts if not.
 local function check_tag(tag)
     assert(ms.tag.check(tag),
