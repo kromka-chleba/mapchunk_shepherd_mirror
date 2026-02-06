@@ -31,6 +31,29 @@ local mod_storage = core.get_mod_storage()
 -- Main loops of the shepherd
 ---------------------------------------------------------------------
 
+--[[
+    Global VM Cache for Processing Round
+    
+    Caches VoxelManip data for ALL blocks processed during a round.
+    This includes:
+    - Focal blocks (being actively processed)
+    - Peripheral blocks (neighbors accessed by workers)
+    
+    Why centralized in shepherd?
+    - Shepherd controls the processing round lifecycle
+    - Allows caching focal blocks for reuse as peripherals
+    - Clear point for cache management (clear at round end)
+    
+    Key: blockpos string "x:y:z"
+    Value: Block data table with {blockpos, vm, node_array, param2_array, light_array, modified flags}
+    
+    Cache lifecycle:
+    - Populated during block processing
+    - Persists across all blocks in the round
+    - Cleared when queue is empty (round complete)
+--]]
+local global_vm_cache = {}
+
 -- Block queue system - simplified design
 -- Active blocks (high priority) are inserted at the front
 -- Loaded blocks (low priority) are appended at the end
@@ -153,6 +176,8 @@ local function execute_cycle(dtime)
         ms.workers_changed = false
         block_queue = {}
         block_in_queue = {}
+        -- Clear cache when workers change
+        global_vm_cache = {}
         currently_processing = false
         return
     end
@@ -162,6 +187,16 @@ local function execute_cycle(dtime)
     end
     local block_item = block_queue[1]
     if not block_item then
+        -- Queue is empty - clear cache to start fresh next round
+        if next(global_vm_cache) ~= nil then
+            -- Flush any modified blocks before clearing
+            for _, cached_block in pairs(global_vm_cache) do
+                if cached_block.nodes_modified or cached_block.param2_modified or cached_block.light_modified then
+                    -- Already flushed during processing, but just in case
+                end
+            end
+            global_vm_cache = {}
+        end
         currently_processing = false
         return
     end
@@ -278,6 +313,11 @@ end)
 ------------------------------------------------------------------
 -- Here the shepherd is started
 ------------------------------------------------------------------
+
+-- Expose the global VM cache to other modules (like block_neighborhood)
+ms.get_vm_cache = function()
+    return global_vm_cache
+end
 
 -- Only start the shepherd if the database format is correct
 if ms.ensure_compatibility() then

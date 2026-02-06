@@ -8,17 +8,16 @@
     Design Philosophy:
     - Primary block: The worker's main target (always loaded)
     - Peripheral blocks: Up to 26 neighbors (loaded on-demand)
-    - Global cache: Shared across all neighborhoods during processing round
+    - Global cache: Centralized in shepherd.lua for all blocks (focal + peripheral)
     - Block validation: Check block status before reusing cached VMs
     - Unified coordinates: Seamless access across boundaries
     
     Global Cache Rationale:
-    The shepherd processes multiple blocks per round. Often these blocks are
-    neighbors of each other. A block processed as focal by one worker may be
-    needed as a peripheral by the next worker. By maintaining a global cache:
-    - We avoid reloading the same block multiple times per round
-    - Memory usage is bounded by blocks processed in the round
-    - Cache is cleared at round end by shepherd
+    The cache is managed by shepherd.lua because:
+    - Shepherd controls the processing round lifecycle
+    - Cache includes both focal blocks and their peripherals
+    - Focal blocks from one worker may be peripherals for the next
+    - Centralized clearing at round end (when queue is empty)
 --]]
 
 local ms = mapchunk_shepherd
@@ -26,31 +25,6 @@ local ms = mapchunk_shepherd
 -- Module table
 ms.block_neighborhood = {}
 local bn = ms.block_neighborhood
-
---[[
-    Global cache for peripheral blocks
-    
-    Shared across all BlockNeighborhood instances during a processing round.
-    Key: blockpos_key string ("x:y:z")
-    Value: PeripheralBlock object
-    
-    Why global?
-    - Blocks in the work queue are often neighbors to each other
-    - A block processed as focal might be needed as peripheral next
-    - Example: Processing blocks (0,0,0) then (0,0,1) - they share faces
-    - Caching (0,0,0)'s data helps when (0,0,1) needs it as a neighbor
-    
-    Cache lifetime:
-    - Persists for entire processing round
-    - No mid-round eviction (unlike LRU)
-    - Cleared by shepherd at round end via clear_round_cache()
-    
-    Memory considerations:
-    - Each block ~16KB (4096 nodes × 4 bytes)
-    - If processing 50 blocks/round with 3 neighbors each = ~150 blocks cached
-    - 150 × 16KB = ~2.4MB - acceptable for most servers
---]]
-local global_peripheral_cache = {}
 
 --[[
     Configuration Constants
@@ -367,13 +341,14 @@ end
     Flow:
     1. Check if this is actually the focal block (return nil if so)
     2. Calculate target block position
-    3. Check global cache for this block
-    4. If cached, validate block is still loaded/active
-    5. If not cached or invalid, load fresh
-    6. Store in global cache for reuse by other neighborhoods
+    3. Get cache reference from shepherd
+    4. Check cache for this block
+    5. If cached, validate block is still loaded/active
+    6. If not cached or invalid, load fresh
+    7. Store in global cache for reuse by other neighborhoods
     
     No eviction during round:
-    Unlike previous LRU design, cached blocks stay until round end.
+    Cached blocks stay until shepherd clears cache (queue empty).
     This is intentional - blocks in the queue are often neighbors,
     so keeping them all cached improves performance.
     
@@ -395,21 +370,24 @@ function BlockNeighborhood:ensure_peripheral(block_offset)
     local target_blockpos = vector.add(self.focal_blockpos, block_offset)
     local key = blockpos_key(target_blockpos)
     
+    -- Get global cache from shepherd
+    local global_cache = ms.get_vm_cache()
+    
     -- Check global cache
-    local cached = global_peripheral_cache[key]
+    local cached = global_cache[key]
     if cached then
         -- Validate block is still loaded before reusing
         if is_block_still_valid(target_blockpos) then
             return cached
         else
             -- Block was unloaded, discard stale cache entry
-            global_peripheral_cache[key] = nil
+            global_cache[key] = nil
         end
     end
     
     -- Load new peripheral and cache globally
     local periph = PeripheralBlock.load(target_blockpos)
-    global_peripheral_cache[key] = periph
+    global_cache[key] = periph
     
     return periph
 end
@@ -496,17 +474,20 @@ end
     Called at the end of worker execution to write back any modifications.
     
     Note: This doesn't clear the cache - blocks remain cached for the
-    rest of the processing round. Only writes back modifications.
+    rest of the processing round. Shepherd clears cache when queue is empty.
     
     Returns:
         Number of blocks that had changes flushed
 --]]
 function BlockNeighborhood:commit_all()
     local flushed_count = 0
-    -- Iterate global cache, not per-instance storage
-    for _, periph in pairs(global_peripheral_cache) do
-        if periph:flush_changes() then
-            flushed_count = flushed_count + 1
+    -- Get cache from shepherd and iterate over all cached blocks
+    local global_cache = ms.get_vm_cache()
+    for _, periph in pairs(global_cache) do
+        if periph.flush_changes then
+            if periph:flush_changes() then
+                flushed_count = flushed_count + 1
+            end
         end
     end
     return flushed_count
@@ -515,30 +496,16 @@ end
 --[[
     bn.clear_round_cache: Clear global cache at end of processing round
     
-    IMPORTANT: The shepherd must call this at the end of each processing round!
+    NOTE: This function is now a no-op as cache clearing is handled
+    by shepherd.lua when the queue is empty. Kept for API compatibility.
     
-    Process:
-    1. Flush any remaining modifications in cached blocks
-    2. Clear the global cache table
-    
-    When to call:
-    - After processing all blocks in the work queue for a round
-    - Before starting the next round
-    - Not needed between individual workers (cache persists within round)
-    
-    Why needed:
-    - Prevents unbounded cache growth across rounds
-    - Ensures fresh data for next round
-    - Releases memory from blocks no longer in the queue
+    The shepherd automatically:
+    - Flushes modifications during processing
+    - Clears cache when queue becomes empty
 --]]
 function bn.clear_round_cache()
-    -- Flush any pending changes
-    for _, periph in pairs(global_peripheral_cache) do
-        periph:flush_changes()
-    end
-    
-    -- Clear the cache
-    global_peripheral_cache = {}
+    -- Cache clearing is now handled by shepherd.lua
+    -- This function kept for backward compatibility
 end
 
 --[[
@@ -552,8 +519,9 @@ end
         - memory_estimate: Approximate memory usage in KB
 --]]
 function bn.get_cache_stats()
+    local global_cache = ms.get_vm_cache()
     local count = 0
-    for _ in pairs(global_peripheral_cache) do
+    for _ in pairs(global_cache) do
         count = count + 1
     end
     
