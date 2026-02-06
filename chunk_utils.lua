@@ -67,36 +67,6 @@ function ms.mapblock_hash(pos)
     return core.hash_node_position(coords)
 end
 
--- Internal function to get storage key from public hash
-local function public_to_storage(public_hash)
-    check_mapgen_env("public_to_storage")
-    -- Search through storage keys to find matching public hash
-    local prefix = "block_"
-    for _, key in pairs(mod_storage:get_keys()) do
-        if key:sub(1, #prefix) == prefix then
-            local stored_hash = key:sub(#prefix + 1)
-            local coords = storage_unhash(stored_hash)
-            local pub_hash = core.hash_node_position(coords)
-            if pub_hash == public_hash then
-                return stored_hash
-            end
-        end
-    end
-    -- Not found, create new storage hash from public hash
-    -- We need to reverse engineer coords from loaded_blocks or active_blocks
-    if core.loaded_blocks and core.loaded_blocks[public_hash] then
-        -- Find the blockpos by checking all loaded/active blocks
-        for hash, _ in pairs(core.loaded_blocks) do
-            if hash == public_hash then
-                -- We have the hash but need the actual position
-                -- Since we can't reverse hash, we'll store using a mapping
-                return nil -- fallback to direct mapping
-            end
-        end
-    end
-    return nil
-end
-
 -- Returns the node position (of the origin) for a mapblock given by 'blockpos'.
 -- blockpos: table with x, y, z coordinates in mapblock units
 function ms.mapblock_pos_to_node(blockpos)

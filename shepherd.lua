@@ -185,9 +185,12 @@ local function enqueue_block(block_hash, blockpos, worker_id, priority_level)
                         insert_pos = i
                         break
                     end
-                    insert_pos = i + 1
                 end
-                table.insert(processing_queue, insert_pos, item)
+                if insert_pos <= #processing_queue then
+                    table.insert(processing_queue, insert_pos, item)
+                else
+                    table.insert(processing_queue, item)
+                end
             end
             return
         end
@@ -210,9 +213,12 @@ local function enqueue_block(block_hash, blockpos, worker_id, priority_level)
                 insert_pos = i
                 break
             end
-            insert_pos = i + 1
         end
-        table.insert(processing_queue, insert_pos, work_item)
+        if insert_pos <= #processing_queue then
+            table.insert(processing_queue, insert_pos, work_item)
+        else
+            table.insert(processing_queue, work_item)
+        end
     else
         table.insert(processing_queue, work_item)
     end
