@@ -194,19 +194,26 @@ The `block_neighborhood` module provides an abstraction layer for these operatio
 
 ### Global Cache Design
 
-The neighborhood system uses a global cache shared by all workers in a processing round:
+The neighborhood system uses a centralized VM cache in `shepherd.lua`:
 
-**Why global cache?**
+**Centralized in shepherd.lua:**
+- Cache stores VMs for ALL blocks (focal + peripheral)
+- Shepherd controls cache lifecycle (clear when queue empty)
+- Focal blocks cached for reuse when they become peripherals
+- Single source of truth for all cached block data
+
+**Why centralized?**
 - Blocks in the work queue are often neighbors to each other
 - A block processed as focal might be needed as peripheral by the next block
 - Example: Processing (0,0,0) then (0,0,1) - they share a face
 - Reusing cached data avoids redundant disk I/O and decompression
 
 **Cache lifecycle:**
+- Populated during block processing (focal and peripheral)
 - Persists for entire processing round (all blocks in queue)
 - No mid-round eviction - neighbors loaded once stay cached
-- Cleared automatically by shepherd at round end
-- Cache validation ensures blocks are still loaded before reuse
+- Automatically cleared by shepherd when queue becomes empty
+- Block validation ensures blocks are still loaded before reuse
 
 **Memory considerations:**
 - Each block ~16KB (4096 nodes × 4 bytes)
@@ -279,31 +286,35 @@ local adjacent = neighborhood:get_adjacent_positions(center_pos)
 -- Manually flush changes (usually automatic)
 local count = neighborhood:commit_all()
 
--- Cache management (for shepherd integration)
-bn.clear_round_cache()  -- Clear cache at end of processing round
+-- Cache statistics (for monitoring)
 local stats = bn.get_cache_stats()  -- Get cache statistics
 ```
 
 ### Shepherd Integration
 
-The shepherd must clear the global cache at the end of each processing round:
+The cache is automatically managed by shepherd.lua:
 
 ```lua
--- In shepherd's main loop, after processing all blocks:
-ms.block_neighborhood.clear_round_cache()
+-- In shepherd's execute_cycle:
+-- - Cache is populated as blocks are processed
+-- - Cache persists across all blocks in the round
+-- - Cache is automatically cleared when queue becomes empty
+
+-- No manual cache management needed!
 ```
 
-This ensures:
-- Fresh data for next round
-- Memory doesn't grow unbounded
-- Stale cached blocks are discarded
+The shepherd's main loop handles:
+- Cache clearing when queue is empty (round complete)
+- Cache clearing when workers change
+- Automatic validation before reusing cached blocks
 
 ### Performance Characteristics
 
+* **Centralized cache**: All blocks (focal + peripheral) in one cache
 * **Lazy loading**: Neighbors loaded only when first accessed (not all 26 upfront)
 * **Global sharing**: Block processed as focal is cached for use as neighbor
 * **Validation**: Cached blocks checked with `core.loaded_blocks` / `core.active_blocks`
-* **No eviction**: Cache persists until round end (no LRU thrashing)
+* **No eviction**: Cache persists until shepherd clears it (queue empty)
 * **Modified tracking**: Only changed data written back (nodes/param2/light separate)
 
 See `example_neighbor_worker.lua` for a complete moisture spreading example.
