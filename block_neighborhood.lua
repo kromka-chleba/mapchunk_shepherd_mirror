@@ -18,12 +18,38 @@ local ms = mapchunk_shepherd
 ms.block_neighborhood = {}
 local bn = ms.block_neighborhood
 
--- Configuration
-local BLOCK_DIMENSION = 16  -- nodes per block edge
-local RETENTION_POOL_SIZE = 10  -- max cached peripheral blocks
-local NEIGHBOR_OFFSETS = {}  -- computed below
+--[[
+    Configuration Constants
+    
+    BLOCK_DIMENSION: Luanti's fixed mapblock size (16x16x16 nodes)
+    
+    RETENTION_POOL_SIZE: Maximum number of peripheral blocks to cache (10)
+    
+    Why 10 blocks?
+    - Most workers access only 1-3 neighbors (e.g., moisture spreading to adjacent faces)
+    - Complex workers (terrain smoothing) might access up to 6 neighbors (all faces)
+    - Extreme cases (particle systems) could access 8 corners or 12 edges
+    - Setting to 10 provides headroom above typical usage without excessive memory
+    - Each cached block holds ~16KB of data (4096 nodes × 4 bytes/ID)
+    - 10 blocks = ~160KB total cache, acceptable for most servers
+    - Higher values risk memory pressure; lower values cause thrashing
+    - Tuned based on expected worker access patterns in shepherd use cases
+--]]
+local BLOCK_DIMENSION = 16
+local RETENTION_POOL_SIZE = 10
+local NEIGHBOR_OFFSETS = {}
 
--- Pre-compute the 26 neighbor offset vectors (3x3x3 cube minus center)
+--[[
+    Pre-compute the 26 neighbor offset vectors
+    
+    A mapblock has 26 neighbors in a 3x3x3 cube (excluding the center block itself):
+    - 6 face neighbors (±X, ±Y, ±Z)
+    - 12 edge neighbors (combinations of 2 axes)
+    - 8 corner neighbors (combinations of all 3 axes)
+    
+    These offsets are used to validate neighbor access and could be extended
+    for future features like "preload all face neighbors" optimizations.
+--]]
 do
     local offset_idx = 1
     for dx = -1, 1 do
@@ -38,15 +64,60 @@ do
     end
 end
 
--- Hash function for block positions (different from main shepherd hash)
+--[[
+    blockpos_key: Convert block position to string key for table lookups
+    
+    Purpose: Creates a unique string identifier for each block position
+    Format: "x:y:z" (e.g., "5:10:-3")
+    
+    Why not use core.hash_node_position()?
+    - That's for the public API (shepherd system uses it)
+    - This is internal to neighborhood tracking
+    - String keys are more debuggable and don't conflict with shepherd's hashing
+    
+    Parameters:
+        bpos: Block position vector {x, y, z}
+    Returns:
+        String key suitable for table indexing
+--]]
 local function blockpos_key(bpos)
     return string.format("%d:%d:%d", bpos.x, bpos.y, bpos.z)
 end
 
--- Peripheral block tracker
+--[[
+    PeripheralBlock: Represents a single neighbor mapblock
+    
+    Responsibilities:
+    - Load VoxelManip data for a specific neighbor block
+    - Track which data arrays have been modified
+    - Flush changes back to the map when evicted or committed
+    - Track access time for LRU eviction
+    
+    Why separate class?
+    - Encapsulates the complex VoxelManip lifecycle
+    - Enables clean tracking of dirty state per block
+    - Simplifies the main BlockNeighborhood logic
+--]]
 local PeripheralBlock = {}
 PeripheralBlock.__index = PeripheralBlock
 
+--[[
+    PeripheralBlock.load: Create and initialize a peripheral block
+    
+    Process:
+    1. Calculate world node positions from block coordinates
+    2. Create VoxelManip and read the block from the map
+    3. Extract node, param2, and light data into arrays
+    4. Initialize modification tracking flags
+    
+    Performance note: This is the expensive operation (disk I/O + decompression)
+    That's why we cache loaded blocks in the retention pool.
+    
+    Parameters:
+        blockpos: Block position in block coordinates (not node coordinates)
+    Returns:
+        Initialized PeripheralBlock object
+--]]
 function PeripheralBlock.load(blockpos)
     local self = setmetatable({}, PeripheralBlock)
     self.blockpos = blockpos
@@ -79,6 +150,18 @@ function PeripheralBlock.load(blockpos)
     return self
 end
 
+--[[
+    PeripheralBlock:mark_dirty: Flag that data has been modified
+    
+    Purpose: Track which data arrays need to be written back to the map
+    This allows us to only write what changed, not all three arrays every time.
+    
+    Also updates last_access_tick to prevent premature eviction of blocks
+    being actively modified.
+    
+    Parameters:
+        data_type: "nodes", "param2", or "light"
+--]]
 function PeripheralBlock:mark_dirty(data_type)
     if data_type == "nodes" then
         self.nodes_modified = true
@@ -90,6 +173,23 @@ function PeripheralBlock:mark_dirty(data_type)
     self.last_access_tick = os.clock()
 end
 
+--[[
+    PeripheralBlock:flush_changes: Write modifications back to the map
+    
+    Process:
+    1. Check if anything was modified (early exit if not)
+    2. Set only the modified data arrays back to the VoxelManip
+    3. Write the VoxelManip to the map
+    4. Update liquid flow if needed
+    
+    Called when:
+    - Block is evicted from retention pool
+    - Worker calls commit_all() at the end
+    - Manual flush requested
+    
+    Returns:
+        true if changes were flushed, false if nothing was modified
+--]]
 function PeripheralBlock:flush_changes()
     if not (self.nodes_modified or self.param2_modified or self.light_modified) then
         return false
@@ -111,13 +211,39 @@ function PeripheralBlock:flush_changes()
     return true
 end
 
--- Main neighborhood accessor
+--[[
+    BlockNeighborhood: Main API for cross-block operations
+    
+    This is the primary interface workers use to access nodes across boundaries.
+    
+    Key features:
+    - Transparent access to focal block and neighbors using world coordinates
+    - Lazy loading: neighbors only loaded when first accessed
+    - LRU caching: keeps recently-used neighbors in memory
+    - Automatic flushing: writes changes when blocks are evicted
+    
+    Design rationale:
+    - Workers shouldn't need to know about block boundaries
+    - World coordinates are more intuitive than managing multiple VoxelManips
+    - Caching prevents repeated expensive loads for the same neighbor
+--]]
 local BlockNeighborhood = {}
 BlockNeighborhood.__index = BlockNeighborhood
 
--- Create a neighborhood accessor centered on a primary block
--- primary_blockpos: The focal block coordinates
--- primary_vm_data: Existing vm_data table from shepherd (optional, for efficiency)
+--[[
+    BlockNeighborhood.new: Create a neighborhood accessor
+    
+    Parameters:
+        primary_blockpos: Block coordinates of the focal block (worker's target)
+        primary_vm_data: Optional reference to the focal block's existing vm_data
+                        from the shepherd (avoids redundant array creation)
+    
+    The focal block's data is never loaded separately - we use the shepherd's
+    existing arrays for efficiency. Only peripheral neighbors are loaded on demand.
+    
+    Returns:
+        Initialized BlockNeighborhood object
+--]]
 function BlockNeighborhood.new(primary_blockpos, primary_vm_data)
     local self = setmetatable({}, BlockNeighborhood)
     
@@ -136,7 +262,33 @@ function BlockNeighborhood.new(primary_blockpos, primary_vm_data)
     return self
 end
 
--- Convert world node position to (block_offset, local_index)
+--[[
+    BlockNeighborhood:decompose_position: Convert world pos to block + local index
+    
+    Critical function for coordinate transformation!
+    
+    Takes a world node position and determines:
+    1. Which block it belongs to (relative to focal block)
+    2. The flat array index within that block
+    
+    Algorithm:
+    - Calculate position relative to focal block's minimum corner
+    - Divide by BLOCK_DIMENSION to get block offset (-1,0,1 in each axis)
+    - Take modulo to get local position within that block (0-15)
+    - Convert 3D local position to flat array index using ZYX ordering
+    
+    Why ZYX order?
+    - Matches Luanti's VoxelManip internal ordering
+    - Z varies slowest, X varies fastest
+    - Index = z*256 + y*16 + x (for 16x16x16 blocks)
+    
+    Parameters:
+        world_pos: Absolute node position in the world
+    
+    Returns:
+        block_offset: Vector showing which neighbor (-1,0,1 per axis)
+        flat_idx: 1-based array index into that block's data (1-4096)
+--]]
 function BlockNeighborhood:decompose_position(world_pos)
     local focal_node_min = vector.multiply(self.focal_blockpos, BLOCK_DIMENSION)
     local relative = vector.subtract(world_pos, focal_node_min)
@@ -162,7 +314,36 @@ function BlockNeighborhood:decompose_position(world_pos)
     return block_offset, flat_idx
 end
 
--- Ensure a peripheral block is loaded
+--[[
+    BlockNeighborhood:ensure_peripheral: Load neighbor block if not already cached
+    
+    Implements the lazy loading + LRU caching strategy.
+    
+    Flow:
+    1. Check if this is actually the focal block (return nil if so)
+    2. Check if already in cache (update access time and return)
+    3. If cache is full, evict the least-recently-used block
+    4. Load the new peripheral block
+    5. Add to cache and access tracking
+    
+    LRU Eviction:
+    - access_order array maintains insertion/access order
+    - Oldest entry is always at index 1
+    - When full, remove from front and flush that block's changes
+    - New accesses are appended to the end
+    
+    Why LRU (Least Recently Used)?
+    - Workers often access nearby neighbors repeatedly
+    - Recently accessed blocks are more likely to be accessed again
+    - Simpler than frequency-based algorithms
+    - Performs well for typical worker patterns
+    
+    Parameters:
+        block_offset: Offset from focal block (-1,0,1 per axis)
+    
+    Returns:
+        PeripheralBlock object, or nil if this is the focal block
+--]]
 function BlockNeighborhood:ensure_peripheral(block_offset)
     if block_offset.x == 0 and block_offset.y == 0 and block_offset.z == 0 then
         return nil  -- This is the focal block, not peripheral
