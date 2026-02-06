@@ -144,10 +144,12 @@ local function process_block(block_item)
     vm:write_to_map(needs_light_update)
     vm:update_liquids()
     
-    -- Send mapblock to clients if it was modified
+    -- Send mapblock to all connected players if it was modified
     -- This ensures clients see updates even for far away blocks
     if block_was_modified then
-        core.send_mapblock(blockpos)
+        for _, player in ipairs(core.get_connected_players()) do
+            player:send_mapblock(blockpos)
+        end
     end
     
     -- Run afterworker callbacks

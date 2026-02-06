@@ -228,9 +228,11 @@ function PeripheralBlock:flush_changes()
     self.vmanip:write_to_map(self.light_modified)
     self.vmanip:update_liquids()
     
-    -- Send mapblock to clients to ensure they see the updates
+    -- Send mapblock to all connected players to ensure they see the updates
     -- This is important for peripheral blocks that may be far from players
-    core.send_mapblock(self.blockpos)
+    for _, player in ipairs(core.get_connected_players()) do
+        player:send_mapblock(self.blockpos)
+    end
     
     return true
 end
