@@ -415,45 +415,109 @@ function ms.create_light_aware_top_placer(args)
 end
 
 -- Helper function to calculate decoration corners based on size and placement flags.
--- Used internally by neighbor_aware_replacer.
--- deco: Decoration definition table with flags and offsets.
--- size: Vector representing decoration size.
--- Returns: Table of corner position vectors.
+-- Rewritten to match Luanti C++ decoration placement logic from mg_decoration.cpp
+-- 
+-- The C++ code applies transformations in this order:
+-- 1. Start at the decoration position p (from gennotify)
+-- 2. Apply Y centering/offset
+-- 3. Apply rotation (affects how X/Z centering is calculated)
+-- 4. Apply X/Z centering based on rotation
+--
+-- This function calculates all corner positions after these transformations.
+--
+-- deco: Decoration definition table with flags, offsets, and rotation.
+-- size: Vector representing schematic size {x, y, z}.
+-- Returns: Table of corner position vectors relative to decoration origin.
 local function get_corners(deco, size)
+    -- Parse flags (handle both string and table formats)
+    local flags = deco.flags or ""
+    local place_center_x = false
+    local place_center_y = false
+    local place_center_z = false
+    
+    if type(flags) == "string" then
+        place_center_x = string.find(flags, "place_center_x") ~= nil
+        place_center_y = string.find(flags, "place_center_y") ~= nil
+        place_center_z = string.find(flags, "place_center_z") ~= nil
+    elseif type(flags) == "table" then
+        place_center_x = flags.place_center_x == true
+        place_center_y = flags.place_center_y == true
+        place_center_z = flags.place_center_z == true
+    end
+    
+    -- Determine rotation (default to ROTATE_0 if not specified)
+    -- Possible values: "0", "90", "180", "270", "random"
+    -- For corner calculation, we need to handle all non-random cases
+    -- Random rotations will be handled at generation time
+    local rotation = deco.rotation or "0"
+    
+    -- Calculate Y offset (from C++ code)
+    local y_offset = 0
+    if place_center_y then
+        -- Center vertically
+        y_offset = -math.floor((size.y - 1) / 2)
+    else
+        -- Apply place_offset_y if specified
+        -- Note: In C++, for ceiling decorations this is inverted, but we're calculating
+        -- corners generically, so we just apply the offset as-is
+        y_offset = deco.place_offset_y or 0
+    end
+    
+    -- Calculate X and Z offsets based on rotation (from C++ code)
+    -- The C++ code shows that rotation affects which dimension the centering is applied to
+    local x_offset = 0
+    local z_offset = 0
+    
+    if rotation == "0" or rotation == "180" then
+        -- No rotation or 180° rotation: dimensions unchanged
+        if place_center_x then
+            x_offset = -math.floor((size.x - 1) / 2)
+        end
+        if place_center_z then
+            z_offset = -math.floor((size.z - 1) / 2)
+        end
+    elseif rotation == "90" or rotation == "270" then
+        -- 90° or 270° rotation: X and Z dimensions are swapped
+        if place_center_x then
+            -- When rotated 90/270, the X centering uses the original X size but applies to Z
+            z_offset = -math.floor((size.x - 1) / 2)
+        end
+        if place_center_z then
+            -- When rotated 90/270, the Z centering uses the original Z size but applies to X
+            x_offset = -math.floor((size.z - 1) / 2)
+        end
+    end
+    -- For "random" rotation, we can't predict corners, so use no rotation case as default
+    
+    -- Calculate the actual corners after applying offsets
+    -- For a schematic, we need all 8 corners of the bounding box
     local corners = {}
-    for z = 0, size.z, size.z do
-        for y = 0, size.y, size.y do
-            for x = 0, size.x, size.x do
-                local v = vector.new(x, y, z)
-                table.insert(corners, v)
+    
+    if rotation == "0" or rotation == "180" or rotation == "random" or rotation == "" then
+        -- Use original dimensions
+        for z = 0, size.z - 1, math.max(1, size.z - 1) do
+            for y = 0, size.y - 1, math.max(1, size.y - 1) do
+                for x = 0, size.x - 1, math.max(1, size.x - 1) do
+                    local corner = vector.new(x + x_offset, y + y_offset, z + z_offset)
+                    table.insert(corners, corner)
+                end
+            end
+        end
+    else
+        -- For 90/270 rotation, X and Z dimensions are swapped
+        local rotated_size_x = size.z
+        local rotated_size_z = size.x
+        for z = 0, rotated_size_z - 1, math.max(1, rotated_size_z - 1) do
+            for y = 0, size.y - 1, math.max(1, size.y - 1) do
+                for x = 0, rotated_size_x - 1, math.max(1, rotated_size_x - 1) do
+                    local corner = vector.new(x + x_offset, y + y_offset, z + z_offset)
+                    table.insert(corners, corner)
+                end
             end
         end
     end
-    local place_center_x = string.find(deco.flags, "place_center_x")
-    local place_center_y = string.find(deco.flags, "place_center_y")
-    local place_center_z = string.find(deco.flags, "place_center_z")
-    local x_offset = 0
-    local y_offset = 0
-    local z_offset = 0
-    if place_center_x then
-        x_offset = math.floor(size.x / 2)
-    end
-    if place_center_y then
-        y_offset = math.floor(size.y / 2)
-    elseif deco.place_offset_y then
-        y_offset = - deco.place_offset_y
-    end
-    if place_center_z then
-        z_offset = math.floor(size.z / 2)
-    end
-    local offset = vector.new(x_offset, y_offset, z_offset)
-    local corners_with_offset = {}
-    for _, corner in pairs(corners) do
-        local corner = corner
-        corner = vector.subtract(corner, offset)
-        table.insert(corners_with_offset, corner)
-    end
-    return corners_with_offset
+    
+    return corners
 end
 
 -- Creates a neighbor-aware node replacer worker function.
