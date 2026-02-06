@@ -92,7 +92,7 @@ function label:elapsed_time()
 end
 
 -- Returns a short formatted note for the label (its name and
--- timestamp). This is used for shepherd /chunk_labels command.
+-- timestamp). This is used for shepherd /block_labels command.
 function label:description()
     return string.format("{%s, %s}", self.name, self.timestamp)
 end
