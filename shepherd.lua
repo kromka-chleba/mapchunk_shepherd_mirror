@@ -113,6 +113,7 @@ local function process_block(block_item)
     local needs_light_update = false
     local needs_param2_update = false
     local label_mgr = ms.label_store.new(blockpos)
+    local block_was_modified = false
     
     -- Run all applicable workers on this block
     for _, worker in pairs(all_workers) do
@@ -127,6 +128,8 @@ local function process_block(block_item)
             if param2_changed then
                 needs_param2_update = true
             end
+            -- Mark that at least one worker ran, meaning the block was modified
+            block_was_modified = true
         end
     end
     
@@ -140,6 +143,12 @@ local function process_block(block_item)
     end
     vm:write_to_map(needs_light_update)
     vm:update_liquids()
+    
+    -- Send mapblock to clients if it was modified
+    -- This ensures clients see updates even for far away blocks
+    if block_was_modified then
+        core.send_mapblock(blockpos)
+    end
     
     -- Run afterworker callbacks
     for _, worker in pairs(all_workers) do
