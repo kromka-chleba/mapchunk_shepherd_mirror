@@ -113,3 +113,28 @@ function label.decode(encoded)
     end
     return labels
 end
+
+-- Helper function to get labels for a block
+function ms.get_labels(block_hash, blockpos)
+    local ls = ms.label_store.new(block_hash, blockpos)
+    return ls:get_labels()
+end
+
+-- Returns the oldest elapsed time from a list of labels that match given tags
+function ms.labels.oldest_elapsed_time(labels, tags)
+    if not labels or #labels == 0 then
+        return 0
+    end
+    local oldest_time = 0
+    for _, label in pairs(labels) do
+        for _, tag in pairs(tags) do
+            if label.name == tag then
+                local elapsed = label:elapsed_time()
+                if elapsed > oldest_time then
+                    oldest_time = elapsed
+                end
+            end
+        end
+    end
+    return oldest_time
+end

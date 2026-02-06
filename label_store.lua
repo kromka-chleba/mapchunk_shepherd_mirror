@@ -21,11 +21,11 @@ local ms = mapchunk_shepherd
 
 --[[
     Label store is a class of objects that serve as a buffer for
-    labels (see labels.lua) for a given mapchunk. Label store provides
+    labels (see labels.lua) for a given mapblock. Label store provides
     two buffers for labels - self.staged_labels and self.labels.  The
     first one keeps labels that were marked for addition or removal in
     the label store, the second keeps the state of the
-    mapchunk. Labels can be moved from self.staged_labels to
+    mapblock. Labels can be moved from self.staged_labels to
     self.labels by using self:set_labels().  Labels from
     self.staged_labels can be sent from mapgen env to normal env using
     gennotify. Labels from self.labels can be saved to mod storage in
@@ -46,13 +46,14 @@ if not mapgen_env then
     mod_storage = core.get_mod_storage()
 end
 
--- Creates a new label_store object. 'hash' is a mapchunk hash created
--- using the 'ms.mapchunk_hash' function. Initializes the object with
--- labels saved in mod storage (if available).
+-- Creates a new label_store object. 'block_hash' is a block hash from
+-- core.hash_node_position(blockpos), and 'blockpos' is the mapblock position.
+-- Initializes the object with labels saved in mod storage (if available).
 -- Returns the label store object.
-function label_store.new(hash)
+function label_store.new(block_hash, blockpos)
     local ls = setmetatable({}, label_store)
-    ls.hash = hash
+    ls.block_hash = block_hash
+    ls.blockpos = blockpos
     ls.staged_labels = {} -- stores label state, keyed by tag
     ls.labels = {} -- stores label objects, keyed by tag
     if not mapgen_env then
@@ -67,11 +68,10 @@ function label_store:reset_labels()
     self.labels = {}
 end
 
--- Sets the hash of the label store to 'hash' which is a mapchunk hash
--- created using the 'ms.mapchunk_hash' function. Resets labels in
--- both buffers and reads labels from mod storage for the mapchunk.
-function label_store:set_hash(hash)
-    self.hash = hash
+-- Sets the hash of the label store.
+function label_store:set_hash(block_hash, blockpos)
+    self.block_hash = block_hash
+    self.blockpos = blockpos
     self:reset_labels()
     if not mapgen_env then
         ls:read_from_disk()
@@ -158,23 +158,25 @@ function label_store:remove_labels(...)
     self:set_labels()
 end
 
--- Imports labels mod storage for the mapchunk, saves them in 'self.labels'
+-- Imports labels mod storage for the mapblock, saves them in 'self.labels'
 function label_store:read_from_disk()
     check_mapgen_env("read_from_disk")
-    local encoded = mod_storage:get_string(self.hash)
+    local storage_key = ms.get_storage_key(self.blockpos)
+    local encoded = mod_storage:get_string(storage_key)
     local labels = ms.label.decode(encoded)
     for _, label in ipairs(labels) do
         self.labels[label.name] = label
     end
 end
 
--- Saves labels from 'self.labels' to mod storage for the mapchunk
+-- Saves labels from 'self.labels' to mod storage for the mapblock
 -- tracked by the label store.
 function label_store:save_to_disk()
     check_mapgen_env("save_to_disk")
     self:set_labels()
     local encoded = ms.label.encode(self.labels)
-    mod_storage:set_string(self.hash, encoded)
+    local storage_key = ms.get_storage_key(self.blockpos)
+    mod_storage:set_string(storage_key, encoded)
 end
 
 -- Checks if the label store contains labels given by '...', which is
@@ -265,7 +267,8 @@ function label_store:save_gen_notify()
     local gennotify = core.get_mapgen_object("gennotify")
     local obj = gennotify.custom["mapchunk_shepherd:labeler"] or {}
     local change = {
-        self.hash,
+        self.block_hash,
+        self.blockpos,
         self.staged_labels,
     }
     table.insert(obj, change)

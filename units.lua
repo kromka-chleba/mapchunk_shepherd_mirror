@@ -24,64 +24,27 @@ local sizes = dofile(mod_path.."/sizes.lua")
 ms.units = {}
 local units = ms.units
 
--- Translates node position into mapblock position.
+-- Converts node position to mapblock position in mapblock coordinates.
 function units.node_to_mapblock(pos)
     local mapblock_pos = vector.floor(pos) / sizes.mapblock.in_nodes
     return mapblock_pos
 end
 
--- Translates node position into mapchunk position.
-function units.node_to_mapchunk(pos)
-    local mapchunk_pos = vector.floor(pos) - sizes.mapchunk_offset
-    mapchunk_pos = mapchunk_pos / sizes.mapchunk.in_nodes
-    return mapchunk_pos
-end
-
--- Translates mapblock position into node position.
+-- Converts mapblock position to node position (origin corner).
 function units.mapblock_to_node(mapblock_pos)
     local pos = mapblock_pos * sizes.mapblock.in_nodes
-    pos = vector.round(pos) -- round to avoid fp garbage
+    pos = vector.round(pos)
     return pos
 end
 
--- Translates mapchunk position into node position.
-function units.mapchunk_to_node(mapchunk_pos)
-    local pos = mapchunk_pos * sizes.mapchunk.in_nodes
-    pos = pos + sizes.mapchunk_offset
-    pos = vector.round(pos) -- round to avoid fp garbage
-    return pos
-end
-
--- Translates mapchunk position into mapblock position.
-function units.mapchunk_to_mapblock(mapchunk_pos)
-    local pos = units.mapchunk_to_node(mapchunk_pos)
-    return units.node_to_mapblock(pos)
-end
-
--- Returns mapblock coordinates of the mapblock in mapblock units.
--- 'pos' is absolute node position.
+-- Gets mapblock coordinates from a node position.
 function units.mapblock_coords(pos)
     local mapblock_pos = units.node_to_mapblock(pos)
     return vector.floor(mapblock_pos)
 end
 
--- Returns mapchunk coordinates of the mapchunk in mapchunk units.
--- 'pos' is absolute node position.
-function units.mapchunk_coords(pos)
-    local mapchunk_pos = units.node_to_mapchunk(pos)
-    return vector.floor(mapchunk_pos)
-end
-
--- Returs origin point of a mapblock stated in absolute node position.
--- 'pos' is absolute node position.
+-- Gets origin node position of the mapblock containing the given position.
 function units.mapblock_origin(pos)
     local coords = units.mapblock_coords(pos)
-    return units.mapchunk_to_node(coords)
-end
-
--- Returs origin point of a mapchunk stated in absolute node position.
--- 'pos' is absolute node position.
-function units.mapchunk_origin(pos)
-    local coords = units.mapchunk_coords(pos)
-    return units.mapchunk_to_node(coords)
+    return units.mapblock_to_node(coords)
 end

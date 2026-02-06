@@ -17,55 +17,28 @@
 --]]
 
 --[[
-    This module defines size constants and conversions for mapchunks, mapblocks, and nodes.
-    All size calculations are based on the mapgen chunksize setting.
+    This module defines size constants for mapblocks and nodes.
     
     Key concepts:
-    - Node: Single block position in the world
-    - Mapblock: 16x16x16 nodes (fixed size)
-    - Mapchunk: NxNxN mapblocks where N is the chunksize setting (default 5)
-    - Mapchunk offset: Shifts the mapchunk grid so players spawn at chunk centers
+    - Node: Single position in the world
+    - Mapblock: 16x16x16 nodes (fixed size in Luanti)
     
     Returns a table with size definitions used throughout the mod.
 --]]
 
 local sizes = {}
 
--- in mapblocks
-local blocks_per_chunk = tonumber(core.get_mapgen_setting("chunksize"))
--- in nodes
 local mapblock_size = 16
--- in nodes
-local mapchunk_size = blocks_per_chunk * mapblock_size
--- origin of the mapchunk grid expressed as absolute position stated in nodes
-local mapchunk_offset = vector.new(1, 1, 1) *
-    -16 * math.floor(blocks_per_chunk / 2)
-
--- Map divisions
-
-sizes.mapchunk_offset = mapchunk_offset
+local mapblock_max = mapblock_size - 1
 
 sizes.node = {
     in_mapblocks = 1 / mapblock_size,
-    in_mapchunks = 1 / mapchunk_size,
 }
-
-local mapblock_max = mapblock_size - 1
 
 sizes.mapblock = {
     in_nodes = mapblock_size,
-    in_mapchunks = 1 / blocks_per_chunk,
     pos_min = vector.zero(),
     pos_max = vector.new(1, 1, 1) * mapblock_max,
-}
-
-local mapchunk_max = mapchunk_size - 1
-
-sizes.mapchunk = {
-    in_nodes = mapchunk_size,
-    in_mapblocks = blocks_per_chunk,
-    pos_min = vector.zero(),
-    pos_max = vector.new(1, 1, 1) * mapchunk_max,
 }
 
 return sizes
