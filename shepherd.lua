@@ -39,16 +39,9 @@ local block_in_queue = {} -- Set to prevent duplicates: block_hash -> true
 local active_blocks = {} -- Tracks active block hashes
 local loaded_blocks = {} -- Tracks loaded block hashes
 
-local longer_break = 2
-local shorter_break = 0.005
-
 local all_workers = {}
 local workers_by_name = {}
 local currently_processing = false
-
-local function stop_processing()
-    currently_processing = false
-end
 
 local vm_data = {
     nodes = {},
@@ -160,16 +153,16 @@ local function execute_cycle(dtime)
         ms.workers_changed = false
         block_queue = {}
         block_in_queue = {}
-        core.after(longer_break, stop_processing)
+        currently_processing = false
         return
     end
     if #all_workers == 0 then
-        core.after(longer_break, stop_processing)
+        currently_processing = false
         return
     end
     local block_item = block_queue[1]
     if not block_item then
-        core.after(shorter_break, stop_processing)
+        currently_processing = false
         return
     end
     local t1 = core.get_us_time()
