@@ -69,6 +69,10 @@ end
 
 local biome_finders = {}
 
+-- Cached biomemap data for current mapchunk to avoid redundant processing
+-- Reset for each mapchunk in mapgen_scanner
+local cached_biomemap_data = nil
+
 -- Creates a biome finder function that labels mapblocks during mapgen.
 -- Detects specific biomes in generated mapchunks and adds labels to mapblocks.
 --
@@ -76,6 +80,9 @@ local biome_finders = {}
 -- ENTIRE mapchunk (typically 80x80x80 nodes), not just one mapblock (16x16x16).
 -- This function checks if any of the target biomes exist anywhere in the mapchunk,
 -- and if so, applies labels to ALL mapblocks in that mapchunk.
+--
+-- OPTIMIZATION: Since the biomemap is the same for all mapblocks in a mapchunk,
+-- we cache it at the mapchunk level to avoid redundant processing.
 --
 -- For more precise per-mapblock biome detection, you would need to:
 -- 1. Calculate which portion of the biomemap corresponds to each mapblock
@@ -91,19 +98,33 @@ function ms.create_biome_finder(args)
     local biome_list = args.biome_list
     local added_labels = args.add_labels or {}
     local removed_labels = args.remove_labels or {}
+    
+    -- Pre-convert biome names to IDs once at registration time
+    -- This avoids repeated core.get_biome_id() calls during mapgen
+    local biome_ids = {}
+    for _, biome in pairs(biome_list) do
+        table.insert(biome_ids, core.get_biome_id(biome))
+    end
+    
     table.insert(
         biome_finders, 
         function(blockpos, mapgen_args)
-            local vm, minp, maxp, blockseed = unpack(mapgen_args)
-            -- biomemap covers the entire mapchunk, not just this mapblock
-            local biomemap = core.get_mapgen_object("biomemap")
-            local present_biomes = {}
-            for i = 1, #biomemap do
-                present_biomes[biomemap[i]] = true
+            -- Use cached biomemap data if available (set per mapchunk)
+            local present_biomes = cached_biomemap_data
+            
+            if not present_biomes then
+                -- Should never happen if mapgen_scanner sets it properly
+                local vm, minp, maxp, blockseed = unpack(mapgen_args)
+                local biomemap = core.get_mapgen_object("biomemap")
+                present_biomes = {}
+                for i = 1, #biomemap do
+                    present_biomes[biomemap[i]] = true
+                end
             end
-            for _, biome in pairs(biome_list) do
-                local id = core.get_biome_id(biome)
-                if present_biomes[id] then
+            
+            -- Check if any of our target biomes are present (using pre-converted IDs)
+            for _, biome_id in ipairs(biome_ids) do
+                if present_biomes[biome_id] then
                     return added_labels, removed_labels
                 end
             end
@@ -129,9 +150,19 @@ local function mapgen_scanner(vm, minp, maxp, blockseed)
     local mapgen_args = {vm, minp, maxp, blockseed}
     local t1 = core.get_us_time()
     
-    -- Get biomemap for the entire mapchunk (if used by scanners)
+    -- Get biomemap for the entire mapchunk once and cache it
     -- The biomemap covers the whole mapchunk, not just one mapblock
+    -- This is used by biome finders to avoid redundant processing
     local biomemap = core.get_mapgen_object("biomemap")
+    if biomemap then
+        -- Build present_biomes set once for the entire mapchunk
+        cached_biomemap_data = {}
+        for i = 1, #biomemap do
+            cached_biomemap_data[biomemap[i]] = true
+        end
+    else
+        cached_biomemap_data = nil
+    end
     
     -- Calculate mapblock boundaries within the mapchunk
     local minblock = ms.units.mapblock_coords(minp)
@@ -149,6 +180,10 @@ local function mapgen_scanner(vm, minp, maxp, blockseed)
             end
         end
     end
+    
+    -- Clear cache after processing mapchunk
+    cached_biomemap_data = nil
+    
     --core.log("error", string.format("elapsed time: %g ms", (core.get_us_time() - t1) / 1000))
 end
 
