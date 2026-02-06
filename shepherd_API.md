@@ -119,7 +119,7 @@ Label Objects
 
 * Returns a human-readable description of the label
 * Returns: String in format `"{tag_name, timestamp}"`
-* Used by the `/chunk_labels` command
+* Used by the `/block_labels` command
 
 Label Encoding/Decoding
 -----------------------
@@ -746,7 +746,7 @@ Chat Commands
 
 The mod provides administrative commands for debugging:
 
-* `/chunk_labels`: Shows labels for the mapblock at the player's position
+* `/block_labels`: Shows labels for the mapblock at the player's position
 * `/block_queue`: Shows information about the current processing queue
   (requires modification to expose this feature)
 
