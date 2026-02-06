@@ -38,6 +38,7 @@ ms.label = {}
 local label = ms.label
 label.__index = ms.label
 
+-- Table for label utility functions
 ms.labels = {}
 
 -- Checks if the tag was registered, asserts if not.
