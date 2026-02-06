@@ -84,8 +84,8 @@ function ms.mapblock_min_max(blockpos)
 end
 
 -- Saves the current game time as the last modification time for a mapblock.
--- block_hash: Mapblock hash (from core.hash_node_position)
-function ms.save_time(block_hash, blockpos)
+-- blockpos: Mapblock position (table with x, y, z)
+function ms.save_time(blockpos)
     check_mapgen_env("save_time")
     local time = core.get_gametime()
     local storage_key = storage_hash(blockpos).."_time"
@@ -93,14 +93,16 @@ function ms.save_time(block_hash, blockpos)
 end
 
 -- Resets the last modification time for a mapblock to 0.
-function ms.reset_time(block_hash, blockpos)
+-- blockpos: Mapblock position (table with x, y, z)
+function ms.reset_time(blockpos)
     check_mapgen_env("reset_time")
     local storage_key = storage_hash(blockpos).."_time"
     mod_storage:set_int(storage_key, 0)
 end
 
 -- Returns the time in game seconds since a mapblock was last modified.
-function ms.time_since_last_change(block_hash, blockpos)
+-- blockpos: Mapblock position (table with x, y, z)
+function ms.time_since_last_change(blockpos)
     check_mapgen_env("time_since_last_change")
     local current_time = core.get_gametime()
     local storage_key = storage_hash(blockpos).."_time"
@@ -139,8 +141,7 @@ end
 function ms.labels_to_position(pos, labels_to_add, labels_to_remove)
     check_mapgen_env("labels_to_position")
     local blockpos = ms.units.mapblock_coords(pos)
-    local block_hash = core.hash_node_position(blockpos)
-    local ls = ms.label_store.new(block_hash, blockpos)
+    local ls = ms.label_store.new(blockpos)
     ls:add_labels(labels_to_add)
     ls:remove_labels(labels_to_remove)
     ls:save_to_disk()

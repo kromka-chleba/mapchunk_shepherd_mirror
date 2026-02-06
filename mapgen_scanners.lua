@@ -33,8 +33,8 @@ end
 
 local private = setmetatable({}, {__mode = "k"})
 
-function mapgen_watchdog.new(block_hash, blockpos)
-    local w = ms.label_store.new(block_hash, blockpos)
+function mapgen_watchdog.new(blockpos)
+    local w = ms.label_store.new(blockpos)
     w.scanners = {}
     private[w] = {}
     return setmetatable(w, mapgen_watchdog)
@@ -42,7 +42,7 @@ end
 
 -- Adds multiple scanner functions given by '...' into the mapgen
 -- watchdog instance.  Each scanner function has to be a function that
--- takes three arguments - 'block_hash' (public hash), 'blockpos' (mapblock position),
+-- takes two arguments - 'blockpos' (mapblock position)
 -- and 'mapgen_args' - a table of arguments {'vm', 'minp', 'maxp',
 -- 'blockseed'} obtained from 'core.register_on_generated'. 'func'
 -- returns two tables: 'added_labels', 'removed_labels' that contain
@@ -61,7 +61,7 @@ end
 
 function mapgen_watchdog:run_scanners(mapgen_args)
     for _, scanner in ipairs(self.scanners) do
-        local added_labels, removed_labels = scanner(self.block_hash, self.blockpos, mapgen_args)
+        local added_labels, removed_labels = scanner(self.blockpos, mapgen_args)
         self:mark_for_addition(added_labels)
         self:mark_for_removal(removed_labels)
     end
@@ -82,7 +82,7 @@ function ms.create_biome_finder(args)
     local removed_labels = args.remove_labels or {}
     table.insert(
         biome_finders, 
-        function(block_hash, blockpos, mapgen_args)
+        function(blockpos, mapgen_args)
             local vm, minp, maxp, blockseed = unpack(mapgen_args)
             local biomemap = core.get_mapgen_object("biomemap")
             local present_biomes = {}
@@ -100,7 +100,8 @@ function ms.create_biome_finder(args)
 end
 
 -- Main mapgen watchdog instance for coordinating scanners.
-local main_watchdog = mapgen_watchdog.new()
+-- Initialized with dummy blockpos, will be set properly during mapgen.
+local main_watchdog = mapgen_watchdog.new({x=0, y=0, z=0})
 
 -- Mapgen scanner callback that runs all registered scanners on generated mapblocks.
 -- Called automatically by Luanti during mapgen.
@@ -112,8 +113,7 @@ local function mapgen_scanner(vm, minp, maxp, blockseed)
     local mapgen_args = {vm, minp, maxp, blockseed}
     local t1 = core.get_us_time()
     local blockpos = ms.units.mapblock_coords(minp)
-    local block_hash = core.hash_node_position(blockpos)
-    main_watchdog:set_hash(block_hash, blockpos)
+    main_watchdog:set_blockpos(blockpos)
     main_watchdog:add_scanners(biome_finders)
     main_watchdog:run_scanners(mapgen_args)
     main_watchdog:save_gen_notify()

@@ -144,20 +144,18 @@ end
 function worker:run(pos_min, pos_max, vm_data)
     if self.catch_up then
         local blockpos = ms.units.mapblock_coords(pos_min)
-        local block_hash = core.hash_node_position(blockpos)
-        local new_chance = self:run_catch_up(block_hash, blockpos, self.chance)
+        local new_chance = self:run_catch_up(blockpos, self.chance)
         return self.fun(pos_min, pos_max, vm_data, new_chance)
     end
     return self.fun(pos_min, pos_max, vm_data, self.chance)
 end
 
 -- Basic catch-up logic that increases chance based on missed work cycles.
--- block_hash: Mapblock hash.
 -- blockpos: Mapblock position.
 -- chance: Base chance value.
 -- Returns: Adjusted chance value based on elapsed time since last work.
-function worker:basic_catch_up(block_hash, blockpos, chance)
-    local labels = ms.get_labels(block_hash, blockpos)
+function worker:basic_catch_up(blockpos, chance)
+    local labels = ms.get_labels(blockpos)
     local elapsed = ms.labels.oldest_elapsed_time(labels, self.rework_labels)
     if elapsed == 0 then
         return chance
@@ -169,24 +167,22 @@ end
 
 -- Runs the catch-up function to adjust chance for missed work cycles.
 -- Uses custom catch_up_function if provided, otherwise uses basic_catch_up.
--- block_hash: Mapblock hash.
 -- blockpos: Mapblock position.
 -- chance: Base chance value.
 -- Returns: Adjusted chance value.
-function worker:run_catch_up(block_hash, blockpos, chance)
+function worker:run_catch_up(blockpos, chance)
     if self.catch_up_function then
-        return self.catch_up_function(block_hash, blockpos, chance)
+        return self.catch_up_function(blockpos, chance)
     end
-    return self:basic_catch_up(block_hash, blockpos, chance)
+    return self:basic_catch_up(blockpos, chance)
 end
 
 -- Runs the afterworker callback if defined.
 -- Called after the worker has completed processing a mapblock.
--- block_hash: Mapblock hash that was processed.
 -- blockpos: Mapblock position that was processed.
-function worker:run_afterworker(block_hash, blockpos)
+function worker:run_afterworker(blockpos)
     if self.afterworker then
-        self.afterworker(block_hash, blockpos)
+        self.afterworker(blockpos)
     end
 end
 
@@ -545,9 +541,8 @@ function ms.create_deco_finder(args)
                     return
                 end
                 local blockpos = ms.units.mapblock_coords(minp)
-                local block_hash = core.hash_node_position(blockpos)
                 if not corners then
-                    local ls = ms.label_store.new(block_hash, blockpos)
+                    local ls = ms.label_store.new(blockpos)
                     ls:mark_for_addition(labels_to_add)
                     ls:mark_for_removal(labels_to_remove)
                     ls:save_to_disk()
@@ -564,7 +559,7 @@ function ms.create_deco_finder(args)
                         local corner_pos = vector.add(pos, wide)
                         local corner_blockpos = ms.units.mapblock_coords(corner_pos)
                         local corner_hash = core.hash_node_position(corner_blockpos)
-                        local ls = label_stores[corner_hash] or ms.label_store.new(corner_hash, corner_blockpos)
+                        local ls = label_stores[corner_hash] or ms.label_store.new(corner_blockpos)
                         label_stores[corner_hash] = ls
                         ls:mark_for_addition(labels_to_add)
                         ls:mark_for_removal(labels_to_remove)

@@ -46,13 +46,12 @@ if not mapgen_env then
     mod_storage = core.get_mod_storage()
 end
 
--- Creates a new label_store object. 'block_hash' is a block hash from
--- core.hash_node_position(blockpos), and 'blockpos' is the mapblock position.
+-- Creates a new label_store object. 'blockpos' is the mapblock position
+-- (table with x, y, z coordinates in mapblock units).
 -- Initializes the object with labels saved in mod storage (if available).
 -- Returns the label store object.
-function label_store.new(block_hash, blockpos)
+function label_store.new(blockpos)
     local ls = setmetatable({}, label_store)
-    ls.block_hash = block_hash
     ls.blockpos = blockpos
     ls.staged_labels = {} -- stores label state, keyed by tag
     ls.labels = {} -- stores label objects, keyed by tag
@@ -68,13 +67,12 @@ function label_store:reset_labels()
     self.labels = {}
 end
 
--- Sets the hash of the label store.
-function label_store:set_hash(block_hash, blockpos)
-    self.block_hash = block_hash
+-- Sets the blockpos of the label store.
+function label_store:set_blockpos(blockpos)
     self.blockpos = blockpos
     self:reset_labels()
     if not mapgen_env then
-        ls:read_from_disk()
+        self:read_from_disk()
     end
 end
 
@@ -267,7 +265,6 @@ function label_store:save_gen_notify()
     local gennotify = core.get_mapgen_object("gennotify")
     local obj = gennotify.custom["mapchunk_shepherd:labeler"] or {}
     local change = {
-        self.block_hash,
         self.blockpos,
         self.staged_labels,
     }
