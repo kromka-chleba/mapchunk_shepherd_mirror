@@ -28,6 +28,43 @@ local sizes = dofile(mod_path.."/sizes.lua")
 local mod_storage = core.get_mod_storage()
 
 ---------------------------------------------------------------------
+-- Configuration
+---------------------------------------------------------------------
+
+--[[
+    USE_WEAK_CACHE: Experimental option to use weak tables for VM cache
+    
+    Default: false (recommended)
+    
+    When true, the cache uses weak values (__mode = "v"), allowing Lua's
+    garbage collector to automatically reclaim cache entries when memory
+    pressure occurs.
+    
+    WARNING: This is experimental and NOT recommended for production use!
+    
+    Risks with weak tables:
+    - Cache entries may be collected during a processing round
+    - Unpredictable performance (same block may be loaded multiple times)
+    - Defeats the purpose of caching neighbors for reuse
+    - Makes debugging harder due to non-deterministic behavior
+    
+    Benefits of weak tables:
+    - Automatic memory management
+    - Might help on extremely memory-constrained servers
+    
+    Only enable this if:
+    - You're experiencing severe memory pressure
+    - You understand the performance tradeoffs
+    - You're willing to accept unpredictable cache behavior
+    
+    Better alternatives to weak tables:
+    - Increase server RAM
+    - Process blocks in smaller batches
+    - Implement explicit LRU cache with size limits
+--]]
+local USE_WEAK_CACHE = false
+
+---------------------------------------------------------------------
 -- Main loops of the shepherd
 ---------------------------------------------------------------------
 
@@ -51,8 +88,60 @@ local mod_storage = core.get_mod_storage()
     - Populated during block processing
     - Persists across all blocks in the round
     - Cleared when queue is empty (round complete)
+    
+    Weak Tables Consideration:
+    
+    Lua weak tables allow the garbage collector to reclaim entries automatically.
+    There are three modes:
+    - __mode = "k" : weak keys (keys can be collected)
+    - __mode = "v" : weak values (values can be collected)
+    - __mode = "kv": both weak
+    
+    For this cache, weak values (__mode = "v") would mean:
+    
+    PROS:
+    + Automatic memory management under pressure
+    + No manual size limits needed
+    + Graceful degradation when RAM is scarce
+    + GC can reclaim unused cache entries
+    
+    CONS:
+    - Unpredictable: entries may vanish mid-round
+    - Performance hits from re-loading same blocks
+    - We WANT deterministic persistence during rounds
+    - The design assumes cache survives the round
+    - Explicit clearing is more predictable
+    
+    DECISION: NOT using weak tables because:
+    1. Cache lifetime is intentionally tied to processing rounds
+    2. Predictable behavior is more important than automatic GC
+    3. Blocks in queue are often neighbors - need reliable caching
+    4. Manual clearing at round end is simple and deterministic
+    5. Memory usage is bounded by round size (acceptable)
+    
+    If memory becomes an issue, better solutions:
+    - Limit cache size explicitly (LRU eviction)
+    - Process smaller batches
+    - Increase server RAM
+    
+    Weak tables could be useful for:
+    - Long-lived caches with unpredictable access patterns
+    - Optional "nice to have" caching
+    - When you can't predict good eviction strategies
+    
+    But NOT for:
+    - Performance-critical caches with defined lifecycles
+    - When deterministic behavior is required
+    - Short-lived caches that are manually cleared
 --]]
 local global_vm_cache = {}
+
+-- Initialize cache with weak table support if configured
+if USE_WEAK_CACHE then
+    setmetatable(global_vm_cache, {__mode = "v"})
+    core.log("warning", "Mapblock Shepherd: Using EXPERIMENTAL weak table cache. " ..
+                       "This may cause unpredictable performance!")
+end
 
 -- Block queue system - simplified design
 -- Active blocks (high priority) are inserted at the front
