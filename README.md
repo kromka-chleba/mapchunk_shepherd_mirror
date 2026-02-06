@@ -220,13 +220,6 @@ The neighborhood system uses a centralized VM cache in `shepherd.lua`:
 - Typical round: 50 blocks with 3 neighbors each = ~150 blocks cached
 - 150 × 16KB = ~2.4MB total - acceptable for most servers
 
-**Weak tables?**
-Lua weak tables allow automatic garbage collection of cache entries. However, they are **not used** for this cache because:
-- We want deterministic cache behavior during rounds
-- Unpredictable GC could cause performance issues
-- Explicit clearing at round end is simple and predictable
-- See `WEAK_TABLES.md` for detailed analysis
-
 ### Using Block Neighborhood in Workers
 
 To create a worker that can access neighboring blocks:
