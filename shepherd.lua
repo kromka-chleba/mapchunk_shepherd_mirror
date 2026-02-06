@@ -193,6 +193,60 @@ local function compute_median_execution()
     return math.ceil(median)
 end
 
+-- Add block to queue in load order (FIFO)
+-- All blocks are processed in the order they are loaded/activated
+local function add_block_to_queue(blockpos, is_active)
+    local block_hash = core.hash_node_position(blockpos)
+    -- Skip if already in queue
+    if block_in_queue[block_hash] then
+        return
+    end
+    
+    local block_item = {
+        hash = block_hash,
+        pos = blockpos,
+        is_active = is_active
+    }
+    
+    -- Always append at end for FIFO processing
+    table.insert(block_queue, block_item)
+    
+    block_in_queue[block_hash] = true
+end
+
+-- Check if block needs processing by any worker
+local function block_needs_work(blockpos)
+    for _, worker in pairs(all_workers) do
+        if block_matches_worker(blockpos, worker) then
+            return true
+        end
+    end
+    return false
+end
+
+-- Scan all loaded blocks and queue those that need work
+-- This is the primary mechanism for discovering blocks that need processing
+local function scan_loaded_blocks()
+    if #all_workers == 0 then
+        return
+    end
+    
+    -- Iterate through all loaded blocks using core.loaded_blocks
+    for block_hash, _ in pairs(core.loaded_blocks) do
+        -- Skip if already in queue
+        if not block_in_queue[block_hash] then
+            -- Convert hash back to position
+            local blockpos = core.get_position_from_hash(block_hash)
+            -- Check if this block needs work based on labels and worker requirements
+            if block_needs_work(blockpos) then
+                -- Determine if this is an active block
+                local is_active = core.active_blocks[block_hash] or false
+                add_block_to_queue(blockpos, is_active)
+            end
+        end
+    end
+end
+
 -- Main processing loop - processes multiple blocks per call with time budget
 -- Time budget: 10ms per frame to avoid lag spikes
 -- At 1ms per block, this allows ~10 blocks per frame, resulting in 200-300 blocks/second at 20-30 FPS
@@ -264,60 +318,6 @@ local function execute_cycle(dtime)
     end
     
     currently_processing = false
-end
-
--- Add block to queue in load order (FIFO)
--- All blocks are processed in the order they are loaded/activated
-local function add_block_to_queue(blockpos, is_active)
-    local block_hash = core.hash_node_position(blockpos)
-    -- Skip if already in queue
-    if block_in_queue[block_hash] then
-        return
-    end
-    
-    local block_item = {
-        hash = block_hash,
-        pos = blockpos,
-        is_active = is_active
-    }
-    
-    -- Always append at end for FIFO processing
-    table.insert(block_queue, block_item)
-    
-    block_in_queue[block_hash] = true
-end
-
--- Check if block needs processing by any worker
-local function block_needs_work(blockpos)
-    for _, worker in pairs(all_workers) do
-        if block_matches_worker(blockpos, worker) then
-            return true
-        end
-    end
-    return false
-end
-
--- Scan all loaded blocks and queue those that need work
--- This is the primary mechanism for discovering blocks that need processing
-local function scan_loaded_blocks()
-    if #all_workers == 0 then
-        return
-    end
-    
-    -- Iterate through all loaded blocks using core.loaded_blocks
-    for block_hash, _ in pairs(core.loaded_blocks) do
-        -- Skip if already in queue
-        if not block_in_queue[block_hash] then
-            -- Convert hash back to position
-            local blockpos = core.get_position_from_hash(block_hash)
-            -- Check if this block needs work based on labels and worker requirements
-            if block_needs_work(blockpos) then
-                -- Determine if this is an active block
-                local is_active = core.active_blocks[block_hash] or false
-                add_block_to_queue(blockpos, is_active)
-            end
-        end
-    end
 end
 
 ------------------------------------------------------------------
