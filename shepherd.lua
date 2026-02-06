@@ -106,12 +106,12 @@ local function process_block(block_item)
     local blockpos = block_item.pos
     local pos_min, pos_max = ms.mapblock_min_max(blockpos)
     
-    -- For loaded-only (non-active) blocks, temporarily forceload to ensure proper state
-    -- This is needed for far away blocks to receive updates correctly
-    local needs_forceload = not block_item.is_active
-    if needs_forceload then
-        -- Use transient forceload (not saved between server runs)
-        core.forceload_block(blockpos, true)
+    -- For loaded-only (non-active) blocks, ensure the block is loaded before processing
+    -- This prevents issues with blocks that may have been unloaded after being queued
+    if not block_item.is_active then
+        -- load_area ensures the block is in memory for VoxelManip operations
+        -- This doesn't force it active, just loads it if needed
+        core.load_area(pos_min, pos_max)
     end
     
     local vm = VoxelManip()
@@ -154,16 +154,11 @@ local function process_block(block_item)
     vm:update_liquids()
     
     -- Send mapblock to all connected players only if the block is loaded but NOT active
-    -- The forceload ensures the block is in proper active state for sending
+    -- Active blocks are automatically sent by the engine with priority
     if block_was_modified and not block_item.is_active then
         for _, player in ipairs(core.get_connected_players()) do
             player:send_mapblock(blockpos)
         end
-    end
-    
-    -- Free the transient forceload after sending
-    if needs_forceload then
-        core.forceload_free_block(blockpos, true)
     end
     
     -- Run afterworker callbacks
@@ -344,6 +339,32 @@ local function execute_cycle(dtime)
     
     currently_processing = false
 end
+
+------------------------------------------------------------------
+-- Block callbacks - Primary mechanism for discovering blocks
+------------------------------------------------------------------
+
+-- When a block is loaded, check if it needs processing
+-- This catches blocks as soon as they're loaded, preventing the race condition
+-- where blocks might be generated, sent to client, and unloaded before periodic scan
+core.register_on_block_loaded(function(blockpos)
+    if #all_workers == 0 then
+        return
+    end
+    
+    local block_hash = core.hash_node_position(blockpos)
+    -- Skip if already in queue
+    if block_in_queue[block_hash] then
+        return
+    end
+    
+    -- Check if this block needs work based on labels and worker requirements
+    if block_needs_work(blockpos) then
+        -- Determine if this is an active block
+        local is_active = core.active_blocks[block_hash] or false
+        add_block_to_queue(blockpos, is_active)
+    end
+end)
 
 ------------------------------------------------------------------
 -- Here the shepherd is started
