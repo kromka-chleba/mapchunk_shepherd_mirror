@@ -21,17 +21,17 @@ local ms = mapchunk_shepherd
 
 --[[
     Labels are lua objects that store metadata that describes a
-    mapchunk. Each label has a tag (see tags.lua) which is a string
-    that describes contents or a property of the mapchunk and a
+    mapblock. Each label has a tag (see tags.lua) which is a string
+    that describes contents or a property of the mapblock and a
     timestamp that describes the time of last modification stated in
     seconds since the world was created as returned by
     'core.get_gametime()'. Other types of metadata could be
     supported in the future.
 
-    Multiple labels can be assigned to a mapchunk in mod storage - the
+    Multiple labels can be assigned to a mapblock in mod storage - the
     lua object gets encoded/serialized in a specific way. Using the
     below 'label' class only affects lua objects, for modifying the
-    state of a mapchunk you need to use 'label_store' (see label_store.lua).
+    state of a mapblock you need to use 'label_store' (see label_store.lua).
 --]]
 
 ms.label = {}
