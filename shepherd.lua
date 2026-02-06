@@ -144,9 +144,10 @@ local function process_block(block_item)
     vm:write_to_map(needs_light_update)
     vm:update_liquids()
     
-    -- Send mapblock to all connected players if it was modified
-    -- This ensures clients see updates even for far away blocks
-    if block_was_modified then
+    -- Send mapblock to all connected players only if the block is loaded but NOT active
+    -- Active blocks are automatically sent by the engine with priority, so we only
+    -- need to manually send loaded-only blocks to ensure clients see far away updates
+    if block_was_modified and not block_item.is_active then
         for _, player in ipairs(core.get_connected_players()) do
             player:send_mapblock(blockpos)
         end
