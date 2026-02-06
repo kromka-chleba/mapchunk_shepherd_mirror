@@ -104,13 +104,31 @@ end
 -- Process a single block with all applicable workers
 local function process_block(block_item)
     local blockpos = block_item.pos
+    local block_hash = core.hash_node_position(blockpos)
     local pos_min, pos_max = ms.mapblock_min_max(blockpos)
     
-    -- For loaded-only (non-active) blocks, ensure the block is loaded before processing
-    -- This prevents issues with blocks that may have been unloaded after being queued
+    -- Verify block is still in loaded_blocks table or can be loaded
+    -- This prevents processing stale queue entries for blocks that were unloaded
+    if not core.loaded_blocks[block_hash] then
+        -- Block is not currently loaded, try to load it
+        -- For loaded-only blocks, ensure they stay in memory
+        if not block_item.is_active then
+            core.load_area(pos_min, pos_max)
+            
+            -- Verify it actually loaded
+            if not core.loaded_blocks[block_hash] then
+                -- Block couldn't be loaded (might be outside world bounds or other issue)
+                -- Skip processing this block
+                return
+            end
+        else
+            -- Active blocks should always be loaded, if not something is wrong
+            return
+        end
+    end
+    
+    -- For loaded-only blocks that are in the table, ensure they stay loaded during processing
     if not block_item.is_active then
-        -- load_area ensures the block is in memory for VoxelManip operations
-        -- This doesn't force it active, just loads it if needed
         core.load_area(pos_min, pos_max)
     end
     
@@ -153,9 +171,9 @@ local function process_block(block_item)
     vm:write_to_map(needs_light_update)
     vm:update_liquids()
     
-    -- Send mapblock to all connected players only if the block is loaded but NOT active
-    -- Active blocks are automatically sent by the engine with priority
-    if block_was_modified and not block_item.is_active then
+    -- Verify block is still loaded before sending to clients
+    -- This prevents sending stale data if block was unloaded during processing
+    if block_was_modified and not block_item.is_active and core.loaded_blocks[block_hash] then
         for _, player in ipairs(core.get_connected_players()) do
             player:send_mapblock(blockpos)
         end
@@ -339,32 +357,6 @@ local function execute_cycle(dtime)
     
     currently_processing = false
 end
-
-------------------------------------------------------------------
--- Block callbacks - Primary mechanism for discovering blocks
-------------------------------------------------------------------
-
--- When a block is loaded, check if it needs processing
--- This catches blocks as soon as they're loaded, preventing the race condition
--- where blocks might be generated, sent to client, and unloaded before periodic scan
-core.register_on_block_loaded(function(blockpos)
-    if #all_workers == 0 then
-        return
-    end
-    
-    local block_hash = core.hash_node_position(blockpos)
-    -- Skip if already in queue
-    if block_in_queue[block_hash] then
-        return
-    end
-    
-    -- Check if this block needs work based on labels and worker requirements
-    if block_needs_work(blockpos) then
-        -- Determine if this is an active block
-        local is_active = core.active_blocks[block_hash] or false
-        add_block_to_queue(blockpos, is_active)
-    end
-end)
 
 ------------------------------------------------------------------
 -- Here the shepherd is started
