@@ -105,6 +105,15 @@ end
 local function process_block(block_item)
     local blockpos = block_item.pos
     local pos_min, pos_max = ms.mapblock_min_max(blockpos)
+    
+    -- For loaded-only (non-active) blocks, temporarily forceload to ensure proper state
+    -- This is needed for far away blocks to receive updates correctly
+    local needs_forceload = not block_item.is_active
+    if needs_forceload then
+        -- Use transient forceload (not saved between server runs)
+        core.forceload_block(blockpos, true)
+    end
+    
     local vm = VoxelManip()
     vm:read_from_map(pos_min, pos_max)
     vm:get_data(vm_data.nodes)
@@ -145,12 +154,16 @@ local function process_block(block_item)
     vm:update_liquids()
     
     -- Send mapblock to all connected players only if the block is loaded but NOT active
-    -- Active blocks are automatically sent by the engine with priority, so we only
-    -- need to manually send loaded-only blocks to ensure clients see far away updates
+    -- The forceload ensures the block is in proper active state for sending
     if block_was_modified and not block_item.is_active then
         for _, player in ipairs(core.get_connected_players()) do
             player:send_mapblock(blockpos)
         end
+    end
+    
+    -- Free the transient forceload after sending
+    if needs_forceload then
+        core.forceload_free_block(blockpos, true)
     end
     
     -- Run afterworker callbacks
