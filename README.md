@@ -41,19 +41,31 @@ A mapblock that is close to a player (within the active_block_range).
 A mapblock that is loaded in memory but may be far from players.
 
 * Block queue system:
-The work queue processes blocks in FIFO (first-in-first-out) order as they are loaded or activated.
-Multiple blocks are processed per frame (up to a time budget of 10ms) to ensure efficient processing
-of all loaded blocks, not just those near players. This ensures that world-wide changes (like season
-transitions) happen promptly across all loaded areas.
+The work queue processes blocks in FIFO (first-in-first-out) order as they are discovered.
+The shepherd periodically scans all loaded blocks (using `core.loaded_blocks`) to check if they
+have labels matching currently registered workers' requirements. Blocks that match are added to
+the processing queue. This periodic scanning (every 5 seconds) ensures that:
+- Blocks with newly added labels are discovered and processed
+- Blocks are rechecked when new workers are registered
+- Blocks whose `work_every` timer has expired are reprocessed
+Multiple blocks are processed per frame (up to a time budget of 10ms) to ensure efficient processing.
+
+* Block discovery:
+Instead of relying solely on block callbacks, the shepherd uses Luanti's `core.loaded_blocks` table
+to periodically scan all loaded blocks and check them against worker requirements. This ensures
+complete coverage of all loaded blocks, not just those that trigger callbacks.
 
 * Block callbacks:
-Luanti provides four callbacks for tracking blocks:
-  - core.register_on_block_activated(function(blockpos)) - Block becomes active (player nearby)
-  - core.register_on_block_loaded(function(blockpos)) - Block loaded into memory
-  - core.register_on_block_deactivated(function(blockpos_list)) - Block no longer active
-  - core.register_on_block_unloaded(function(blockpos_list)) - Block unloaded from memory
+Luanti provides callbacks for tracking blocks and the `core.loaded_blocks` and `core.active_blocks` tables:
+  - `core.loaded_blocks`: Read-only table of currently loaded blocks (keys are block hashes)
+  - `core.active_blocks`: Read-only table of currently active blocks (keys are block hashes)
+  - `core.register_on_block_activated(function(blockpos))` - Block becomes active (player nearby)
+  - `core.register_on_block_loaded(function(blockpos))` - Block loaded into memory
+  - `core.register_on_block_deactivated(function(blockpos_list))` - Block no longer active
+  - `core.register_on_block_unloaded(function(blockpos_list))` - Block unloaded from memory
 
-The shepherd uses these callbacks to automatically discover blocks without needing a player tracker loop.
+The shepherd uses `core.loaded_blocks` to periodically discover all loaded blocks and check them
+against worker requirements, ensuring complete coverage without relying on callback timing.
 
 * Label:
 A string tag combined with a timestamp assigned to a mapblock.
@@ -163,19 +175,27 @@ The mod uses a versioned database format stored in mod storage. It includes:
 
 ## Work Queue and Processing System
 
-The work queue processes blocks in FIFO (first-in-first-out) order as they are loaded or activated:
+The work queue processes blocks in FIFO (first-in-first-out) order as they are discovered:
+
+**Block Discovery:**
+- The shepherd periodically scans `core.loaded_blocks` (every 5 seconds) to discover blocks
+- For each loaded block, checks if it has labels matching currently registered workers' requirements
+- Blocks that match are added to the processing queue
+- This ensures blocks with newly added labels or matching newly registered workers get processed
+- When workers are registered or changed, an immediate scan is performed
 
 **Processing Strategy:**
-- Blocks are processed in the order they are loaded/activated
+- Blocks are processed in the order they are discovered
 - Multiple blocks are processed per frame (up to a time budget of 10ms)
 - This ensures efficient processing of all loaded blocks, including those far from players
 - World-wide changes (like season transitions) happen promptly across all loaded areas
 
 **Performance:**
+- Periodic scanning every 5 seconds ensures all loaded blocks are eventually checked
 - Time budget of 10ms per frame prevents lag spikes
 - With typical 1ms per-block processing time, ~10 blocks are processed per frame
 - At 20-30 FPS, this results in 200-300 blocks/second throughput
-- Much faster than the old 1-block-per-frame approach (~20-30 blocks/second)
+- Scanning overhead is minimal as it only checks block hashes and labels
 
 Workers can define "needed_labels" and "has_one_of" to filter which mapblocks they process.
 Workers can also define "work_every" to specify how often (in game time) they should re-process the same block.

@@ -55,15 +55,17 @@ local mod_storage = core.get_mod_storage()
 local global_vm_cache = {}
 
 -- Block queue system - FIFO processing
--- All blocks are processed in the order they are loaded/activated
+-- All blocks are processed in the order they are discovered
 local block_queue = {}
 local block_in_queue = {} -- Set to prevent duplicates: block_hash -> true
-local active_blocks = {} -- Tracks active block hashes
-local loaded_blocks = {} -- Tracks loaded block hashes
 
 local all_workers = {}
 local workers_by_name = {}
 local currently_processing = false
+
+-- Periodic scanning of loaded blocks
+local scan_timer = 0
+local SCAN_INTERVAL = 5.0  -- Check all loaded blocks every 5 seconds
 
 local vm_data = {
     nodes = {},
@@ -201,6 +203,14 @@ local function execute_cycle(dtime)
         return
     end
     currently_processing = true
+    
+    -- Periodic scanning of loaded blocks for labels that match worker requirements
+    scan_timer = scan_timer + dtime
+    if scan_timer >= SCAN_INTERVAL then
+        scan_timer = 0
+        scan_loaded_blocks()
+    end
+    
     if ms.workers_changed then
         all_workers = ms.workers
         workers_by_name = ms.workers_by_name
@@ -209,6 +219,8 @@ local function execute_cycle(dtime)
         block_in_queue = {}
         -- Clear cache when workers change
         global_vm_cache = {}
+        -- Immediately scan all loaded blocks when workers change
+        scan_loaded_blocks()
         currently_processing = false
         return
     end
@@ -285,47 +297,28 @@ local function block_needs_work(blockpos)
     return false
 end
 
--- Block activation callback - add to queue
-core.register_on_block_activated(function(blockpos)
-    local block_hash = core.hash_node_position(blockpos)
-    active_blocks[block_hash] = true
-    if block_needs_work(blockpos) then
-        add_block_to_queue(blockpos, true)
+-- Scan all loaded blocks and queue those that need work
+-- This is the primary mechanism for discovering blocks that need processing
+local function scan_loaded_blocks()
+    if #all_workers == 0 then
+        return
     end
-end)
-
--- Block loaded callback - add to queue
-core.register_on_block_loaded(function(blockpos)
-    local block_hash = core.hash_node_position(blockpos)
-    if not active_blocks[block_hash] then
-        loaded_blocks[block_hash] = true
-        if block_needs_work(blockpos) then
-            add_block_to_queue(blockpos, false)
+    
+    -- Iterate through all loaded blocks using core.loaded_blocks
+    for block_hash, _ in pairs(core.loaded_blocks) do
+        -- Skip if already in queue
+        if not block_in_queue[block_hash] then
+            -- Convert hash back to position
+            local blockpos = core.get_position_from_hash(block_hash)
+            -- Check if this block needs work based on labels and worker requirements
+            if block_needs_work(blockpos) then
+                -- Determine if this is an active block
+                local is_active = core.active_blocks[block_hash] or false
+                add_block_to_queue(blockpos, is_active)
+            end
         end
     end
-end)
-
--- Block deactivation callback - update tracking and re-queue if needed
-core.register_on_block_deactivated(function(blockpos_list)
-    for _, blockpos in ipairs(blockpos_list) do
-        local block_hash = core.hash_node_position(blockpos)
-        active_blocks[block_hash] = nil
-        loaded_blocks[block_hash] = true
-        -- Re-queue deactivated blocks that still need work
-        if block_needs_work(blockpos) then
-            add_block_to_queue(blockpos, false)
-        end
-    end
-end)
-
--- Block unloaded callback - clean up tracking
-core.register_on_block_unloaded(function(blockpos_list)
-    for _, blockpos in ipairs(blockpos_list) do
-        local block_hash = core.hash_node_position(blockpos)
-        loaded_blocks[block_hash] = nil
-        active_blocks[block_hash] = nil
-    end
-end)
+end
 
 ------------------------------------------------------------------
 -- Here the shepherd is started
@@ -355,17 +348,19 @@ core.register_chatcommand(
             local nr_of_blocks = ms.tracked_block_counter()
             local tracked_status = S("Tracked blocks: ")..nr_of_blocks
             local queue_status = S("Block queue: ")..#block_queue
+            
+            -- Count blocks using core.loaded_blocks and core.active_blocks
             local active_count = 0
-            for _ in pairs(active_blocks) do
+            for _ in pairs(core.active_blocks) do
                 active_count = active_count + 1
             end
             local loaded_count = 0
-            for _ in pairs(loaded_blocks) do
+            for _ in pairs(core.loaded_blocks) do
                 loaded_count = loaded_count + 1
             end
-            local total_loaded = active_count + loaded_count
+            
             local blocks_status = S("Active blocks: ")..active_count.." | "..
-                S("Total loaded blocks: ")..total_loaded
+                S("Total loaded blocks: ")..loaded_count
             local time_status = S("Processing time: ")..
                 S("Min: ")..math.ceil(min_process_time).." ms | "..
                 S("Max: ")..math.ceil(max_process_time).." ms | "..
