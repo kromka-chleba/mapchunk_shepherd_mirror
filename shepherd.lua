@@ -210,8 +210,8 @@ local function enqueue_block(block_hash, blockpos, worker_id, priority_level)
     table.insert(processing_queue, insert_pos, work_item)
 end
 
--- Checks if labels have aged beyond threshold
-local function labels_aged(labels, threshold)
+-- Checks if any labels have aged beyond the threshold
+local function any_label_exceeds_age(labels, threshold)
     for _, label in pairs(labels) do
         if label:elapsed_time() > threshold then
             return true
@@ -233,7 +233,7 @@ local function block_fits_worker(block_hash, blockpos, worker)
         if not timer_labels then
             return true
         end
-        return labels_aged(timer_labels, interval)
+        return any_label_exceeds_age(timer_labels, interval)
     end
     return true
 end

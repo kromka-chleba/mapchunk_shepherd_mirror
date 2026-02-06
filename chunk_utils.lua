@@ -46,13 +46,17 @@ function ms.block_side()
     return sizes.mapblock.in_nodes
 end
 
--- Custom encoding for internal storage
+-- Internal storage key encoder for mod storage compatibility.
+-- Converts blockpos coordinates to a base64-encoded string.
+-- This format is used only for internal database storage.
 local function storage_hash(coords)
     local str = coords.x.."_"..coords.y.."_"..coords.z
     return core.encode_base64(str)
 end
 
--- Decodes internal storage hash
+-- Internal storage key decoder.
+-- Converts base64-encoded storage key back to blockpos coordinates.
+-- This is the inverse of storage_hash() and used only internally.
 local function storage_unhash(hash)
     local decoded = core.decode_base64(hash)
     local a = decoded:split("_")

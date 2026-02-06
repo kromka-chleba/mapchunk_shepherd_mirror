@@ -38,7 +38,11 @@ ms.label = {}
 local label = ms.label
 label.__index = ms.label
 
--- Table for label utility functions
+-- Table for label utility functions.
+-- Contains helper functions for working with labels, such as
+-- ms.labels.oldest_elapsed_time() for finding the oldest label age.
+-- Use ms.label for creating and manipulating individual label objects,
+-- and ms.labels for batch operations and utilities.
 ms.labels = {}
 
 -- Checks if the tag was registered, asserts if not.
