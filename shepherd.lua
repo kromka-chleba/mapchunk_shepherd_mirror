@@ -292,12 +292,16 @@ core.register_on_block_loaded(function(blockpos)
     end
 end)
 
--- Block deactivation callback - just update tracking
+-- Block deactivation callback - update tracking and re-queue if needed
 core.register_on_block_deactivated(function(blockpos_list)
     for _, blockpos in ipairs(blockpos_list) do
         local block_hash = core.hash_node_position(blockpos)
         active_blocks[block_hash] = nil
         loaded_blocks[block_hash] = true
+        -- Re-queue deactivated blocks that still need work
+        if block_needs_work(blockpos) then
+            add_block_to_queue(blockpos, false)
+        end
     end
 end)
 
@@ -346,8 +350,9 @@ core.register_chatcommand(
             for _ in pairs(loaded_blocks) do
                 loaded_count = loaded_count + 1
             end
+            local total_loaded = active_count + loaded_count
             local blocks_status = S("Active blocks: ")..active_count.." | "..
-                S("Loaded blocks: ")..loaded_count
+                S("Total loaded blocks: ")..total_loaded
             local time_status = S("Processing time: ")..
                 S("Min: ")..math.ceil(min_process_time).." ms | "..
                 S("Max: ")..math.ceil(max_process_time).." ms | "..
