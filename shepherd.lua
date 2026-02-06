@@ -171,9 +171,11 @@ local function process_block(block_item)
     vm:write_to_map(needs_light_update)
     vm:update_liquids()
     
-    -- Verify block is still loaded before sending to clients
-    -- This prevents sending stale data if block was unloaded during processing
-    if block_was_modified and not block_item.is_active and core.loaded_blocks[block_hash] then
+    -- Send modified blocks to clients unconditionally
+    -- Server-side blocks can't be outdated - we just modified them and wrote to map
+    -- Even if block unloads from server memory, the modification is correct and persistent
+    -- Clients need this update to replace their stale cached version
+    if block_was_modified and not block_item.is_active then
         for _, player in ipairs(core.get_connected_players()) do
             player:send_mapblock(blockpos)
         end
