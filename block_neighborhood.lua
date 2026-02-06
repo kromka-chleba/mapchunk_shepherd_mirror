@@ -8,8 +8,17 @@
     Design Philosophy:
     - Primary block: The worker's main target (always loaded)
     - Peripheral blocks: Up to 26 neighbors (loaded on-demand)
-    - Retention pool: Keeps recently used peripherals cached
+    - Global cache: Shared across all neighborhoods during processing round
+    - Block validation: Check block status before reusing cached VMs
     - Unified coordinates: Seamless access across boundaries
+    
+    Global Cache Rationale:
+    The shepherd processes multiple blocks per round. Often these blocks are
+    neighbors of each other. A block processed as focal by one worker may be
+    needed as a peripheral by the next worker. By maintaining a global cache:
+    - We avoid reloading the same block multiple times per round
+    - Memory usage is bounded by blocks processed in the round
+    - Cache is cleared at round end by shepherd
 --]]
 
 local ms = mapchunk_shepherd
@@ -19,24 +28,38 @@ ms.block_neighborhood = {}
 local bn = ms.block_neighborhood
 
 --[[
+    Global cache for peripheral blocks
+    
+    Shared across all BlockNeighborhood instances during a processing round.
+    Key: blockpos_key string ("x:y:z")
+    Value: PeripheralBlock object
+    
+    Why global?
+    - Blocks in the work queue are often neighbors to each other
+    - A block processed as focal might be needed as peripheral next
+    - Example: Processing blocks (0,0,0) then (0,0,1) - they share faces
+    - Caching (0,0,0)'s data helps when (0,0,1) needs it as a neighbor
+    
+    Cache lifetime:
+    - Persists for entire processing round
+    - No mid-round eviction (unlike LRU)
+    - Cleared by shepherd at round end via clear_round_cache()
+    
+    Memory considerations:
+    - Each block ~16KB (4096 nodes × 4 bytes)
+    - If processing 50 blocks/round with 3 neighbors each = ~150 blocks cached
+    - 150 × 16KB = ~2.4MB - acceptable for most servers
+--]]
+local global_peripheral_cache = {}
+
+--[[
     Configuration Constants
     
     BLOCK_DIMENSION: Luanti's fixed mapblock size (16x16x16 nodes)
     
-    RETENTION_POOL_SIZE: Maximum number of peripheral blocks to cache (10)
-    
-    Why 10 blocks?
-    - Most workers access only 1-3 neighbors (e.g., moisture spreading to adjacent faces)
-    - Complex workers (terrain smoothing) might access up to 6 neighbors (all faces)
-    - Extreme cases (particle systems) could access 8 corners or 12 edges
-    - Setting to 10 provides headroom above typical usage without excessive memory
-    - Each cached block holds ~16KB of data (4096 nodes × 4 bytes/ID)
-    - 10 blocks = ~160KB total cache, acceptable for most servers
-    - Higher values risk memory pressure; lower values cause thrashing
-    - Tuned based on expected worker access patterns in shepherd use cases
+    NEIGHBOR_OFFSETS: Pre-computed offset vectors for all 26 neighbors
 --]]
 local BLOCK_DIMENSION = 16
-local RETENTION_POOL_SIZE = 10
 local NEIGHBOR_OFFSETS = {}
 
 --[[
@@ -82,6 +105,29 @@ end
 --]]
 local function blockpos_key(bpos)
     return string.format("%d:%d:%d", bpos.x, bpos.y, bpos.z)
+end
+
+--[[
+    is_block_still_valid: Check if a cached block is still usable
+    
+    Before reusing a cached VoxelManip, we must verify the block is still:
+    - Loaded in memory (core.loaded_blocks)
+    - OR active (core.active_blocks)
+    
+    Why check?
+    - Blocks can be unloaded between rounds
+    - Using a VM for an unloaded block would cause errors or stale data
+    - This validation ensures cache correctness
+    
+    Parameters:
+        blockpos: Block position to check
+    
+    Returns:
+        true if block is loaded or active, false otherwise
+--]]
+local function is_block_still_valid(blockpos)
+    local hash = core.hash_node_position(blockpos)
+    return core.loaded_blocks[hash] or core.active_blocks[hash]
 end
 
 --[[
@@ -255,9 +301,8 @@ function BlockNeighborhood.new(primary_blockpos, primary_vm_data)
     self.focal_param2_data = primary_vm_data and primary_vm_data.param2 or nil
     self.focal_light_data = primary_vm_data and primary_vm_data.light or nil
     
-    -- Peripheral block storage
-    self.peripherals = {}  -- key -> PeripheralBlock
-    self.access_order = {}  -- for LRU tracking
+    -- Note: No per-instance cache - we use the global cache
+    -- This allows blocks processed in the queue to share cached neighbors
     
     return self
 end
@@ -315,28 +360,26 @@ function BlockNeighborhood:decompose_position(world_pos)
 end
 
 --[[
-    BlockNeighborhood:ensure_peripheral: Load neighbor block if not already cached
+    BlockNeighborhood:ensure_peripheral: Get or load neighbor block from global cache
     
-    Implements the lazy loading + LRU caching strategy.
+    Implements lazy loading with global caching and block validation.
     
     Flow:
     1. Check if this is actually the focal block (return nil if so)
-    2. Check if already in cache (update access time and return)
-    3. If cache is full, evict the least-recently-used block
-    4. Load the new peripheral block
-    5. Add to cache and access tracking
+    2. Calculate target block position
+    3. Check global cache for this block
+    4. If cached, validate block is still loaded/active
+    5. If not cached or invalid, load fresh
+    6. Store in global cache for reuse by other neighborhoods
     
-    LRU Eviction:
-    - access_order array maintains insertion/access order
-    - Oldest entry is always at index 1
-    - When full, remove from front and flush that block's changes
-    - New accesses are appended to the end
+    No eviction during round:
+    Unlike previous LRU design, cached blocks stay until round end.
+    This is intentional - blocks in the queue are often neighbors,
+    so keeping them all cached improves performance.
     
-    Why LRU (Least Recently Used)?
-    - Workers often access nearby neighbors repeatedly
-    - Recently accessed blocks are more likely to be accessed again
-    - Simpler than frequency-based algorithms
-    - Performs well for typical worker patterns
+    Cache invalidation:
+    If a cached block is no longer loaded/active, we discard it and
+    reload. This handles edge cases where blocks unload mid-round.
     
     Parameters:
         block_offset: Offset from focal block (-1,0,1 per axis)
@@ -352,26 +395,21 @@ function BlockNeighborhood:ensure_peripheral(block_offset)
     local target_blockpos = vector.add(self.focal_blockpos, block_offset)
     local key = blockpos_key(target_blockpos)
     
-    -- Already loaded?
-    if self.peripherals[key] then
-        self.peripherals[key].last_access_tick = os.clock()
-        return self.peripherals[key]
-    end
-    
-    -- Enforce retention pool limit
-    if #self.access_order >= RETENTION_POOL_SIZE then
-        -- Evict oldest
-        local oldest_key = table.remove(self.access_order, 1)
-        if self.peripherals[oldest_key] then
-            self.peripherals[oldest_key]:flush_changes()
-            self.peripherals[oldest_key] = nil
+    -- Check global cache
+    local cached = global_peripheral_cache[key]
+    if cached then
+        -- Validate block is still loaded before reusing
+        if is_block_still_valid(target_blockpos) then
+            return cached
+        else
+            -- Block was unloaded, discard stale cache entry
+            global_peripheral_cache[key] = nil
         end
     end
     
-    -- Load new peripheral
+    -- Load new peripheral and cache globally
     local periph = PeripheralBlock.load(target_blockpos)
-    self.peripherals[key] = periph
-    table.insert(self.access_order, key)
+    global_peripheral_cache[key] = periph
     
     return periph
 end
@@ -452,10 +490,21 @@ function BlockNeighborhood:write_param2(world_pos, param2_val)
     return false
 end
 
--- Finalize - flush all modified peripherals
+--[[
+    BlockNeighborhood:commit_all: Flush all modified blocks in global cache
+    
+    Called at the end of worker execution to write back any modifications.
+    
+    Note: This doesn't clear the cache - blocks remain cached for the
+    rest of the processing round. Only writes back modifications.
+    
+    Returns:
+        Number of blocks that had changes flushed
+--]]
 function BlockNeighborhood:commit_all()
     local flushed_count = 0
-    for _, periph in pairs(self.peripherals) do
+    -- Iterate global cache, not per-instance storage
+    for _, periph in pairs(global_peripheral_cache) do
         if periph:flush_changes() then
             flushed_count = flushed_count + 1
         end
@@ -463,7 +512,72 @@ function BlockNeighborhood:commit_all()
     return flushed_count
 end
 
--- Helper: Get all 6 directly adjacent positions (for moisture spread, etc.)
+--[[
+    bn.clear_round_cache: Clear global cache at end of processing round
+    
+    IMPORTANT: The shepherd must call this at the end of each processing round!
+    
+    Process:
+    1. Flush any remaining modifications in cached blocks
+    2. Clear the global cache table
+    
+    When to call:
+    - After processing all blocks in the work queue for a round
+    - Before starting the next round
+    - Not needed between individual workers (cache persists within round)
+    
+    Why needed:
+    - Prevents unbounded cache growth across rounds
+    - Ensures fresh data for next round
+    - Releases memory from blocks no longer in the queue
+--]]
+function bn.clear_round_cache()
+    -- Flush any pending changes
+    for _, periph in pairs(global_peripheral_cache) do
+        periph:flush_changes()
+    end
+    
+    -- Clear the cache
+    global_peripheral_cache = {}
+end
+
+--[[
+    bn.get_cache_stats: Get statistics about the global cache
+    
+    Useful for debugging and monitoring cache effectiveness.
+    
+    Returns:
+        Table with:
+        - count: Number of blocks currently cached
+        - memory_estimate: Approximate memory usage in KB
+--]]
+function bn.get_cache_stats()
+    local count = 0
+    for _ in pairs(global_peripheral_cache) do
+        count = count + 1
+    end
+    
+    -- Each block: 4096 nodes × 4 bytes ≈ 16KB
+    local memory_kb = count * 16
+    
+    return {
+        count = count,
+        memory_estimate = memory_kb
+    }
+end
+
+--[[
+    BlockNeighborhood:get_adjacent_positions: Get 6 orthogonally adjacent positions
+    
+    Helper for common tasks like moisture/fluid spreading, particle spawning, etc.
+    Returns the 6 face-adjacent positions (not edges or corners).
+    
+    Parameters:
+        center_pos: World position to get neighbors of
+    
+    Returns:
+        Table of 6 position vectors (+X, -X, +Y, -Y, +Z, -Z)
+--]]
 function BlockNeighborhood:get_adjacent_positions(center_pos)
     return {
         vector.add(center_pos, vector.new(1, 0, 0)),
@@ -475,13 +589,48 @@ function BlockNeighborhood:get_adjacent_positions(center_pos)
     }
 end
 
--- Export the constructor
+--[[
+    bn.create: Create a BlockNeighborhood accessor
+    
+    Factory function for creating neighborhood instances.
+    
+    Parameters:
+        primary_blockpos: Block coordinates of focal block
+        primary_vm_data: Optional reference to focal block's vm_data from shepherd
+    
+    Returns:
+        BlockNeighborhood instance
+--]]
 function bn.create(primary_blockpos, primary_vm_data)
     return BlockNeighborhood.new(primary_blockpos, primary_vm_data)
 end
 
--- Convenience wrapper for workers that need neighbor access
--- Creates a neighborhood-aware worker function
+--[[
+    bn.wrap_worker_function: Convenience wrapper for neighborhood-aware workers
+    
+    Takes a worker function and wraps it to inject neighborhood access.
+    
+    Original worker signature:
+        function(pos_min, pos_max, vm_data, chance)
+    
+    Wrapped worker signature:
+        function(pos_min, pos_max, vm_data, chance, neighborhood)
+    
+    The wrapper:
+    1. Creates a BlockNeighborhood instance
+    2. Passes it as 5th parameter to worker
+    3. Calls commit_all() after worker completes
+    
+    Note: commit_all() writes modifications but doesn't clear cache.
+    Cache persists for the entire round and is cleared by shepherd.
+    
+    Parameters:
+        worker_fn: Original worker function expecting neighborhood parameter
+        needs_neighbors: Boolean - if false, returns unwrapped function
+    
+    Returns:
+        Wrapped worker function compatible with shepherd system
+--]]
 function bn.wrap_worker_function(worker_fn, needs_neighbors)
     if not needs_neighbors then
         return worker_fn  -- No wrapping needed

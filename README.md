@@ -187,9 +187,31 @@ The `block_neighborhood` module provides an abstraction layer for these operatio
 
 1. **Focal Block**: The primary block being processed (always loaded by the worker)
 2. **Peripheral Blocks**: Up to 26 neighboring blocks (loaded lazily on-demand)
-3. **Unified Coordinates**: Access nodes seamlessly across boundaries using world positions
-4. **Smart Caching**: Recently accessed neighbors stay in a retention pool (configurable size)
-5. **Automatic Flushing**: Modified neighbors are written back automatically
+3. **Global Cache**: Shared cache across all blocks processed in a round
+4. **Unified Coordinates**: Access nodes seamlessly across boundaries using world positions
+5. **Block Validation**: Cached VMs are validated before reuse
+6. **Round-based Lifecycle**: Cache persists for entire processing round, cleared at round end
+
+### Global Cache Design
+
+The neighborhood system uses a global cache shared by all workers in a processing round:
+
+**Why global cache?**
+- Blocks in the work queue are often neighbors to each other
+- A block processed as focal might be needed as peripheral by the next block
+- Example: Processing (0,0,0) then (0,0,1) - they share a face
+- Reusing cached data avoids redundant disk I/O and decompression
+
+**Cache lifecycle:**
+- Persists for entire processing round (all blocks in queue)
+- No mid-round eviction - neighbors loaded once stay cached
+- Cleared automatically by shepherd at round end
+- Cache validation ensures blocks are still loaded before reuse
+
+**Memory considerations:**
+- Each block ~16KB (4096 nodes × 4 bytes)
+- Typical round: 50 blocks with 3 neighbors each = ~150 blocks cached
+- 150 × 16KB = ~2.4MB total - acceptable for most servers
 
 ### Using Block Neighborhood in Workers
 
@@ -256,14 +278,33 @@ local adjacent = neighborhood:get_adjacent_positions(center_pos)
 
 -- Manually flush changes (usually automatic)
 local count = neighborhood:commit_all()
+
+-- Cache management (for shepherd integration)
+bn.clear_round_cache()  -- Clear cache at end of processing round
+local stats = bn.get_cache_stats()  -- Get cache statistics
 ```
 
-### Performance Considerations
+### Shepherd Integration
 
-* Retention pool default: 10 peripheral blocks
-* LRU eviction: Oldest unused peripherals are flushed when pool is full
-* Lazy loading: Neighbors only loaded when first accessed
-* Modified peripherals are written back only once during commit
+The shepherd must clear the global cache at the end of each processing round:
+
+```lua
+-- In shepherd's main loop, after processing all blocks:
+ms.block_neighborhood.clear_round_cache()
+```
+
+This ensures:
+- Fresh data for next round
+- Memory doesn't grow unbounded
+- Stale cached blocks are discarded
+
+### Performance Characteristics
+
+* **Lazy loading**: Neighbors loaded only when first accessed (not all 26 upfront)
+* **Global sharing**: Block processed as focal is cached for use as neighbor
+* **Validation**: Cached blocks checked with `core.loaded_blocks` / `core.active_blocks`
+* **No eviction**: Cache persists until round end (no LRU thrashing)
+* **Modified tracking**: Only changed data written back (nodes/param2/light separate)
 
 See `example_neighbor_worker.lua` for a complete moisture spreading example.
 
