@@ -192,7 +192,8 @@ local function compute_median_execution()
 end
 
 -- Main processing loop - processes multiple blocks per call with time budget
--- Time budget: 10ms per frame to avoid lag spikes (assumes ~100 FPS target)
+-- Time budget: 10ms per frame to avoid lag spikes
+-- At 1ms per block, this allows ~10 blocks per frame, resulting in 200-300 blocks/second at 20-30 FPS
 local TIME_BUDGET_US = 10000  -- 10ms in microseconds
 
 local function execute_cycle(dtime)
@@ -224,6 +225,7 @@ local function execute_cycle(dtime)
         local block_item = block_queue[1]
         
         -- Check time budget before processing next block
+        -- Note: Always process at least one block per frame to guarantee forward progress
         local elapsed_time = core.get_us_time() - frame_start_time
         if blocks_processed > 0 and elapsed_time >= TIME_BUDGET_US then
             -- Time budget exhausted, stop for this frame
