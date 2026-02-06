@@ -314,7 +314,7 @@ function ms.create_light_aware_replacer(args)
         for i = 1, #data do
             local replacement = ids[data[i]]
             if replacement then
-                local above_index = i + chunk_side
+                local above_index = i + block_side
                 local random_pick = false
                 if not data_light[above_index] then
                     above_index = i
