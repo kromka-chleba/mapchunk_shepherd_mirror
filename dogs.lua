@@ -415,15 +415,21 @@ function ms.create_light_aware_top_placer(args)
 end
 
 -- Helper function to calculate decoration corners based on size and placement flags.
--- Rewritten to match Luanti C++ decoration placement logic from mg_decoration.cpp
+-- Implements Luanti C++ decoration placement logic from mg_decoration.cpp
 -- 
--- The C++ code applies transformations in this order:
+-- The engine applies transformations in this order:
 -- 1. Start at the decoration position p (from gennotify)
 -- 2. Apply Y centering/offset
 -- 3. Apply rotation (affects how X/Z centering is calculated)
 -- 4. Apply X/Z centering based on rotation
 --
 -- This function calculates all corner positions after these transformations.
+--
+-- Key implementation details:
+-- - For 90°/270° rotations, X and Z dimensions are swapped
+-- - Centering uses -floor((size - 1) / 2), not floor(size / 2)
+-- - For rotated schematics, centering flags apply to the appropriate rotated axes
+-- - Corners represent the bounding box of the placed decoration
 --
 -- deco: Decoration definition table with flags, offsets, and rotation.
 -- size: Vector representing schematic size {x, y, z}.
