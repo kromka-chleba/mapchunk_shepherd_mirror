@@ -172,9 +172,22 @@ end
 function label_store:save_to_disk()
     check_mapgen_env("save_to_disk")
     self:set_labels()
-    local encoded = ms.label.encode(self.labels)
     local storage_key = ms.get_storage_key(self.blockpos)
+    
+    -- Check if this is a new entry (mapblock not previously tracked)
+    local existing = mod_storage:get_string(storage_key)
+    local is_new_entry = (existing == "" or existing == nil)
+    
+    -- Check if we have any labels to save
+    local has_labels = next(self.labels) ~= nil
+    
+    local encoded = ms.label.encode(self.labels)
     mod_storage:set_string(storage_key, encoded)
+    
+    -- Increment counter if this is a new tracked mapblock with labels
+    if is_new_entry and has_labels then
+        ms.bump_tracked_counter()
+    end
 end
 
 -- Checks if the label store contains labels given by '...', which is

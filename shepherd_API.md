@@ -10,12 +10,11 @@ based on labels and scheduling. It allows mods to:
 * Label mapblocks with tags during mapgen or runtime
 * Schedule processing of mapblocks based on their labels
 * Create workers that modify mapblocks with VoxelManipulators
-* **Process ALL loaded blocks** (including those far from players), unlike ABMs/LBMs which only process active blocks. Active blocks (near players) are processed first for better responsiveness.
+* **Process ALL loaded blocks** (including those far from players), unlike ABMs/LBMs which only process active blocks. Blocks are discovered by periodically scanning `core.loaded_blocks`.
 * Access neighboring mapblocks for cross-boundary operations
 
-The mod uses Luanti's block callbacks (`core.register_on_block_loaded`, 
-`core.register_on_block_activated`, etc.) to automatically discover and queue
-blocks for processing.
+The mod periodically scans `core.loaded_blocks` to discover blocks that have labels matching
+currently registered workers' requirements, ensuring complete coverage of all loaded blocks.
 
 
 Core Namespace
@@ -374,6 +373,38 @@ decorations. They are more efficient than post-generation scanning.
   })
   ```
 
+`ms.create_surface_finder(args)`
+
+* Creates a surface finder that automatically labels mapblocks during mapgen based on heightmap
+* Uses Luanti's heightmap to detect which mapblocks are at surface, underground, or aboveground
+* Automatically assigns standard tags:
+    * `"surface"` - Mapblocks at or near the surface (thickness controlled by margin)
+    * `"underground"` - All mapblocks below the surface zone
+    * `"aboveground"` - All mapblocks above the surface zone
+* `args`: Table (optional) with:
+    * `margin`: Number (optional), thickness of surface zone in mapblocks (default: 0)
+        * `0` - Exact mapblock containing surface
+        * `1` - Surface includes ±1 mapblock from surface
+        * `2` - Surface includes ±2 mapblocks from surface, etc.
+* Margin controls surface zone thickness; all blocks beyond that are underground or aboveground
+* Example:
+  ```lua
+  -- Label with exact surface (margin 0)
+  -- Surface: exact mapblock
+  -- Underground: everything below surface
+  -- Aboveground: everything above surface
+  ms.create_surface_finder({margin = 0})
+  
+  -- Label with thick surface (margin 1)  
+  -- Surface: ±1 mapblock from surface
+  -- Underground: everything more than 1 below surface
+  -- Aboveground: everything more than 1 above surface
+  ms.create_surface_finder({margin = 1})
+  
+  -- Or use default margin (0)
+  ms.create_surface_finder()
+  ```
+
 `ms.create_deco_finder(args)`
 
 * Creates a decoration finder that labels mapblocks during mapgen
@@ -718,8 +749,9 @@ ms.worker.new({
 Performance Considerations
 ==========================
 
-* Mapblocks are processed one at a time to avoid blocking
-* Active blocks (near players) are prioritized over other loaded blocks
+* Multiple mapblocks are processed per frame (up to a 10ms time budget)
+* Blocks are discovered by periodically scanning `core.loaded_blocks` (every 5 seconds)
+* Blocks are processed in FIFO order as they are discovered
 * The global VM cache is shared across all workers in a processing round
 * Cache is cleared when the block queue becomes empty
 * VoxelManipulator operations are batched per mapblock for efficiency

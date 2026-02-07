@@ -54,17 +54,18 @@ local mod_storage = core.get_mod_storage()
 --]]
 local global_vm_cache = {}
 
--- Block queue system - simplified design
--- Active blocks (high priority) are inserted at the front
--- Loaded blocks (low priority) are appended at the end
+-- Block queue system - FIFO processing
+-- All blocks are processed in the order they are discovered
 local block_queue = {}
 local block_in_queue = {} -- Set to prevent duplicates: block_hash -> true
-local active_blocks = {} -- Tracks active block hashes
-local loaded_blocks = {} -- Tracks loaded block hashes
 
 local all_workers = {}
 local workers_by_name = {}
 local currently_processing = false
+
+-- Periodic scanning of loaded blocks
+local scan_timer = 0
+local SCAN_INTERVAL = 5.0  -- Check all loaded blocks every 5 seconds
 
 local vm_data = {
     nodes = {},
@@ -103,7 +104,16 @@ end
 -- Process a single block with all applicable workers
 local function process_block(block_item)
     local blockpos = block_item.pos
+    local block_hash = core.hash_node_position(blockpos)
     local pos_min, pos_max = ms.mapblock_min_max(blockpos)
+    
+    -- Verify block is still in loaded_blocks table
+    -- If not loaded, skip processing (VoxelManip won't be able to read it anyway)
+    if not core.loaded_blocks[block_hash] then
+        return
+    end
+    
+    -- VoxelManip automatically loads the area when read_from_map is called
     local vm = VoxelManip()
     vm:read_from_map(pos_min, pos_max)
     vm:get_data(vm_data.nodes)
@@ -112,6 +122,7 @@ local function process_block(block_item)
     local needs_light_update = false
     local needs_param2_update = false
     local label_mgr = ms.label_store.new(blockpos)
+    local block_was_modified = false
     
     -- Run all applicable workers on this block
     for _, worker in pairs(all_workers) do
@@ -126,6 +137,8 @@ local function process_block(block_item)
             if param2_changed then
                 needs_param2_update = true
             end
+            -- Mark that at least one worker ran, meaning the block was modified
+            block_was_modified = true
         end
     end
     
@@ -139,6 +152,14 @@ local function process_block(block_item)
     end
     vm:write_to_map(needs_light_update)
     vm:update_liquids()
+    
+    -- Send modified blocks to all clients
+    -- Server-side blocks can't be outdated - we just modified them and wrote to map
+    if block_was_modified then
+        for _, player in ipairs(core.get_connected_players()) do
+            player:send_mapblock(blockpos)
+        end
+    end
     
     -- Run afterworker callbacks
     for _, worker in pairs(all_workers) do
@@ -192,53 +213,9 @@ local function compute_median_execution()
     return math.ceil(median)
 end
 
--- Main processing loop - processes one block per call
-local function execute_cycle(dtime)
-    if currently_processing then
-        return
-    end
-    currently_processing = true
-    if ms.workers_changed then
-        all_workers = ms.workers
-        workers_by_name = ms.workers_by_name
-        ms.workers_changed = false
-        block_queue = {}
-        block_in_queue = {}
-        -- Clear cache when workers change
-        global_vm_cache = {}
-        currently_processing = false
-        return
-    end
-    if #all_workers == 0 then
-        currently_processing = false
-        return
-    end
-    local block_item = block_queue[1]
-    if not block_item then
-        -- Queue is empty - clear cache to start fresh next round
-        if next(global_vm_cache) ~= nil then
-            -- Flush any modified blocks before clearing
-            for _, cached_block in pairs(global_vm_cache) do
-                if cached_block.nodes_modified or cached_block.param2_modified or cached_block.light_modified then
-                    -- Already flushed during processing, but just in case
-                end
-            end
-            global_vm_cache = {}
-        end
-        currently_processing = false
-        return
-    end
-    local t1 = core.get_us_time()
-    process_block(block_item)
-    track_execution(t1)
-    table.remove(block_queue, 1)
-    block_in_queue[block_item.hash] = nil
-    currently_processing = false
-end
-
--- Add block to queue with priority handling
--- Active blocks go to front, loaded blocks go to end
-local function add_block_to_queue(blockpos, is_active)
+-- Add block to queue in load order (FIFO)
+-- All blocks are processed in the order they are loaded/activated
+local function add_block_to_queue(blockpos)
     local block_hash = core.hash_node_position(blockpos)
     -- Skip if already in queue
     if block_in_queue[block_hash] then
@@ -247,17 +224,11 @@ local function add_block_to_queue(blockpos, is_active)
     
     local block_item = {
         hash = block_hash,
-        pos = blockpos,
-        is_active = is_active
+        pos = blockpos
     }
     
-    if is_active then
-        -- Insert at front for active blocks (high priority)
-        table.insert(block_queue, 1, block_item)
-    else
-        -- Append at end for loaded blocks (low priority)
-        table.insert(block_queue, block_item)
-    end
+    -- Always append at end for FIFO processing
+    table.insert(block_queue, block_item)
     
     block_in_queue[block_hash] = true
 end
@@ -272,47 +243,100 @@ local function block_needs_work(blockpos)
     return false
 end
 
--- Block activation callback - add to queue with high priority
-core.register_on_block_activated(function(blockpos)
-    local block_hash = core.hash_node_position(blockpos)
-    active_blocks[block_hash] = true
-    if block_needs_work(blockpos) then
-        add_block_to_queue(blockpos, true)
+-- Scan all loaded blocks and queue those that need work
+-- This is the primary mechanism for discovering blocks that need processing
+local function scan_loaded_blocks()
+    if #all_workers == 0 then
+        return
     end
-end)
-
--- Block loaded callback - add to queue with low priority
-core.register_on_block_loaded(function(blockpos)
-    local block_hash = core.hash_node_position(blockpos)
-    if not active_blocks[block_hash] then
-        loaded_blocks[block_hash] = true
-        if block_needs_work(blockpos) then
-            add_block_to_queue(blockpos, false)
+    
+    -- Iterate through all loaded blocks using core.loaded_blocks
+    -- Note: core.loaded_blocks includes both active and inactive loaded blocks
+    for block_hash, _ in pairs(core.loaded_blocks) do
+        -- Skip if already in queue
+        if not block_in_queue[block_hash] then
+            -- Convert hash back to position
+            local blockpos = core.get_position_from_hash(block_hash)
+            -- Check if this block needs work based on labels and worker requirements
+            if block_needs_work(blockpos) then
+                add_block_to_queue(blockpos)
+            end
         end
     end
-end)
+end
 
--- Block deactivation callback - update tracking and re-queue if needed
-core.register_on_block_deactivated(function(blockpos_list)
-    for _, blockpos in ipairs(blockpos_list) do
-        local block_hash = core.hash_node_position(blockpos)
-        active_blocks[block_hash] = nil
-        loaded_blocks[block_hash] = true
-        -- Re-queue deactivated blocks that still need work
-        if block_needs_work(blockpos) then
-            add_block_to_queue(blockpos, false)
+-- Main processing loop - processes multiple blocks per call with time budget
+-- Time budget: 10ms per frame to avoid lag spikes
+-- At 1ms per block, this allows ~10 blocks per frame, resulting in 200-300 blocks/second at 20-30 FPS
+local TIME_BUDGET_US = 10000  -- 10ms in microseconds
+
+local function execute_cycle(dtime)
+    if currently_processing then
+        return
+    end
+    currently_processing = true
+    
+    -- Periodic scanning of loaded blocks for labels that match worker requirements
+    scan_timer = scan_timer + dtime
+    if scan_timer >= SCAN_INTERVAL then
+        scan_timer = 0
+        scan_loaded_blocks()
+    end
+    
+    if ms.workers_changed then
+        all_workers = ms.workers
+        workers_by_name = ms.workers_by_name
+        ms.workers_changed = false
+        block_queue = {}
+        block_in_queue = {}
+        -- Clear cache when workers change
+        global_vm_cache = {}
+        -- Immediately scan all loaded blocks when workers change
+        scan_loaded_blocks()
+        currently_processing = false
+        return
+    end
+    if #all_workers == 0 then
+        currently_processing = false
+        return
+    end
+    
+    local frame_start_time = core.get_us_time()
+    local blocks_processed = 0
+    
+    -- Process blocks until time budget exhausted or queue empty
+    while #block_queue > 0 do
+        local block_item = block_queue[1]
+        
+        -- Check time budget before processing next block
+        -- Note: Always process at least one block per frame to guarantee forward progress
+        local elapsed_time = core.get_us_time() - frame_start_time
+        if blocks_processed > 0 and elapsed_time >= TIME_BUDGET_US then
+            -- Time budget exhausted, stop for this frame
+            break
         end
+        
+        local t1 = core.get_us_time()
+        process_block(block_item)
+        track_execution(t1)
+        table.remove(block_queue, 1)
+        block_in_queue[block_item.hash] = nil
+        blocks_processed = blocks_processed + 1
     end
-end)
-
--- Block unloaded callback - clean up tracking
-core.register_on_block_unloaded(function(blockpos_list)
-    for _, blockpos in ipairs(blockpos_list) do
-        local block_hash = core.hash_node_position(blockpos)
-        loaded_blocks[block_hash] = nil
-        active_blocks[block_hash] = nil
+    
+    -- Queue is empty - clear cache to start fresh next round
+    if #block_queue == 0 and next(global_vm_cache) ~= nil then
+        -- Flush any modified blocks before clearing
+        for _, cached_block in pairs(global_vm_cache) do
+            if cached_block.nodes_modified or cached_block.param2_modified or cached_block.light_modified then
+                -- Already flushed during processing, but just in case
+            end
+        end
+        global_vm_cache = {}
     end
-end)
+    
+    currently_processing = false
+end
 
 ------------------------------------------------------------------
 -- Here the shepherd is started
@@ -342,17 +366,22 @@ core.register_chatcommand(
             local nr_of_blocks = ms.tracked_block_counter()
             local tracked_status = S("Tracked blocks: ")..nr_of_blocks
             local queue_status = S("Block queue: ")..#block_queue
+            
+            -- Count blocks using core.loaded_blocks and core.active_blocks
+            -- Note: core.active_blocks is a subset of core.loaded_blocks
             local active_count = 0
-            for _ in pairs(active_blocks) do
+            for _ in pairs(core.active_blocks) do
                 active_count = active_count + 1
             end
             local loaded_count = 0
-            for _ in pairs(loaded_blocks) do
+            for _ in pairs(core.loaded_blocks) do
                 loaded_count = loaded_count + 1
             end
-            local total_loaded = active_count + loaded_count
+            local inactive_count = loaded_count - active_count
+            
             local blocks_status = S("Active blocks: ")..active_count.." | "..
-                S("Total loaded blocks: ")..total_loaded
+                S("Loaded (inactive): ")..inactive_count.." | "..
+                S("Total loaded: ")..loaded_count
             local time_status = S("Processing time: ")..
                 S("Min: ")..math.ceil(min_process_time).." ms | "..
                 S("Max: ")..math.ceil(max_process_time).." ms | "..

@@ -228,6 +228,12 @@ function PeripheralBlock:flush_changes()
     self.vmanip:write_to_map(self.light_modified)
     self.vmanip:update_liquids()
     
+    -- Note: We don't send mapblock to clients here because:
+    -- 1. The engine automatically sends active blocks with priority
+    -- 2. Peripheral blocks are typically near the focal block being processed
+    -- 3. The focal block's send_mapblock (if needed) should be sufficient
+    -- 4. Forcing updates for all neighbors is redundant and resource-intensive
+    
     return true
 end
 

@@ -110,16 +110,16 @@ function ms.time_since_last_change(blockpos)
 end
 
 -- Increments the tracked block counter in mod storage.
-local function bump_counter()
-    check_mapgen_env("bump_counter")
+function ms.bump_tracked_counter()
+    check_mapgen_env("bump_tracked_counter")
     local counter = mod_storage:get_int("counter")
     counter = counter + 1
     mod_storage:set_int("counter", counter)
 end
 
 -- Decrements the tracked block counter in mod storage (minimum 0).
-local function debump_counter()
-    check_mapgen_env("debump_counter")
+function ms.debump_tracked_counter()
+    check_mapgen_env("debump_tracked_counter")
     local counter = mod_storage:get_int("counter")
     counter = counter - 1
     if counter < 0 then
