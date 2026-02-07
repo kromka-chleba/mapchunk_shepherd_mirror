@@ -107,31 +107,13 @@ local function process_block(block_item)
     local block_hash = core.hash_node_position(blockpos)
     local pos_min, pos_max = ms.mapblock_min_max(blockpos)
     
-    -- Verify block is still in loaded_blocks table or can be loaded
-    -- This prevents processing stale queue entries for blocks that were unloaded
+    -- Verify block is still in loaded_blocks table
+    -- If not loaded, skip processing (VoxelManip won't be able to read it anyway)
     if not core.loaded_blocks[block_hash] then
-        -- Block is not currently loaded, try to load it
-        -- For loaded-only blocks, ensure they stay in memory
-        if not block_item.is_active then
-            core.load_area(pos_min, pos_max)
-            
-            -- Verify it actually loaded
-            if not core.loaded_blocks[block_hash] then
-                -- Block couldn't be loaded (might be outside world bounds or other issue)
-                -- Skip processing this block
-                return
-            end
-        else
-            -- Active blocks should always be loaded, if not something is wrong
-            return
-        end
+        return
     end
     
-    -- For loaded-only blocks that are in the table, ensure they stay loaded during processing
-    if not block_item.is_active then
-        core.load_area(pos_min, pos_max)
-    end
-    
+    -- VoxelManip automatically loads the area when read_from_map is called
     local vm = VoxelManip()
     vm:read_from_map(pos_min, pos_max)
     vm:get_data(vm_data.nodes)
@@ -171,11 +153,9 @@ local function process_block(block_item)
     vm:write_to_map(needs_light_update)
     vm:update_liquids()
     
-    -- Send modified blocks to clients unconditionally
+    -- Send modified blocks to all clients
     -- Server-side blocks can't be outdated - we just modified them and wrote to map
-    -- Even if block unloads from server memory, the modification is correct and persistent
-    -- Clients need this update to replace their stale cached version
-    if block_was_modified and not block_item.is_active then
+    if block_was_modified then
         for _, player in ipairs(core.get_connected_players()) do
             player:send_mapblock(blockpos)
         end
@@ -235,7 +215,7 @@ end
 
 -- Add block to queue in load order (FIFO)
 -- All blocks are processed in the order they are loaded/activated
-local function add_block_to_queue(blockpos, is_active)
+local function add_block_to_queue(blockpos)
     local block_hash = core.hash_node_position(blockpos)
     -- Skip if already in queue
     if block_in_queue[block_hash] then
@@ -244,8 +224,7 @@ local function add_block_to_queue(blockpos, is_active)
     
     local block_item = {
         hash = block_hash,
-        pos = blockpos,
-        is_active = is_active
+        pos = blockpos
     }
     
     -- Always append at end for FIFO processing
@@ -272,6 +251,7 @@ local function scan_loaded_blocks()
     end
     
     -- Iterate through all loaded blocks using core.loaded_blocks
+    -- Note: core.loaded_blocks includes both active and inactive loaded blocks
     for block_hash, _ in pairs(core.loaded_blocks) do
         -- Skip if already in queue
         if not block_in_queue[block_hash] then
@@ -279,9 +259,7 @@ local function scan_loaded_blocks()
             local blockpos = core.get_position_from_hash(block_hash)
             -- Check if this block needs work based on labels and worker requirements
             if block_needs_work(blockpos) then
-                -- Determine if this is an active block
-                local is_active = core.active_blocks[block_hash] or false
-                add_block_to_queue(blockpos, is_active)
+                add_block_to_queue(blockpos)
             end
         end
     end
