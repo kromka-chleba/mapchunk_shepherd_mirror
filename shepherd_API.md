@@ -373,6 +373,42 @@ decorations. They are more efficient than post-generation scanning.
   })
   ```
 
+`ms.create_surface_finder(args)`
+
+* Creates a surface finder that labels mapblocks during mapgen based on heightmap
+* Uses Luanti's heightmap to detect which mapblocks contain surface terrain
+* `args`: Table with:
+    * `add_labels`: Table (array), labels to add when surface is found
+    * `remove_labels`: Table (array), labels to remove when surface is found
+    * `y_offset`: Number (optional), offset from surface level (default: 0)
+        * `0` = exact surface level
+        * `1` = one block above surface
+        * `-1` = one block below surface
+    * `y_range`: Number (optional), range around target (default: 0)
+        * `0` = exact match only
+        * `1` = ±1 block from target
+* Labels mapblocks where any heightmap value (adjusted by offset) falls within
+  the mapblock's Y range (expanded by y_range)
+* Example:
+  ```lua
+  -- Label blocks containing surface
+  ms.create_surface_finder({
+      add_labels = {"has_surface"}
+  })
+  
+  -- Label blocks one level above surface
+  ms.create_surface_finder({
+      add_labels = {"above_surface"},
+      y_offset = 1
+  })
+  
+  -- Label blocks near surface (±2 blocks)
+  ms.create_surface_finder({
+      add_labels = {"near_surface"},
+      y_range = 2
+  })
+  ```
+
 `ms.create_deco_finder(args)`
 
 * Creates a decoration finder that labels mapblocks during mapgen
