@@ -80,7 +80,10 @@ local cached_heightmap_data = nil
 local surface_finders = {}
 
 -- Creates a surface finder function that labels mapblocks during mapgen.
--- Detects surface areas in generated mapchunks using heightmap data and adds labels.
+-- Automatically assigns standard tags based on heightmap position:
+-- - "surface": Mapblocks at or near the surface (within margin)
+-- - "underground": Mapblocks below the surface (within margin distance)
+-- - "aboveground": Mapblocks above the surface (within margin distance)
 --
 -- The heightmap from core.get_mapgen_object("heightmap") provides y-coordinates
 -- of the ground level for each column in the mapchunk. We use this to determine
@@ -89,28 +92,14 @@ local surface_finders = {}
 -- OPTIMIZATION: The heightmap is cached at the mapchunk level to avoid redundant
 -- processing, similar to biomemap caching.
 --
--- args: Configuration table:
---   - add_labels (table): Labels to add when condition is met (e.g., {"has_surface"})
---   - remove_labels (table): Labels to remove when condition is met
---   - mode (string, optional): Detection mode - "surface", "above", or "below" (default: "surface")
---       * "surface": Labels mapblocks that contain the surface
---       * "above": Labels mapblocks above the surface
---       * "below": Labels mapblocks below the surface
---   - margin (number, optional): Thickness in mapblocks (default: 0)
---       * 0: Exact mapblock containing surface (for "surface" mode) or adjacent (for "above"/"below")
---       * 1: Includes one additional mapblock layer
---       * 2: Includes two additional mapblock layers, etc.
+-- args: Configuration table (optional):
+--   - margin (number, optional): Thickness in mapblocks for each zone (default: 0)
+--       * 0: Exact mapblock containing surface, immediate adjacent blocks for underground/aboveground
+--       * 1: Includes one additional mapblock layer for each zone
+--       * 2: Includes two additional mapblock layers for each zone, etc.
 function ms.create_surface_finder(args)
-    local args = table.copy(args)
-    local added_labels = args.add_labels or {}
-    local removed_labels = args.remove_labels or {}
-    local mode = args.mode or "surface"
+    local args = args or {}
     local margin = args.margin or 0
-    
-    -- Validate mode
-    if mode ~= "surface" and mode ~= "above" and mode ~= "below" then
-        error("Invalid mode: " .. tostring(mode) .. ". Must be 'surface', 'above', or 'below'")
-    end
     
     -- Get mapblock size once for use in the scanner function
     local block_size = ms.block_side()
@@ -136,24 +125,22 @@ function ms.create_surface_finder(args)
                 -- Determine which mapblock contains the surface
                 local surface_mapblock_y = math.floor(height_y / block_size)
                 
-                local matches = false
+                local distance_from_surface = blockpos.y - surface_mapblock_y
+                local abs_distance = math.abs(distance_from_surface)
                 
-                if mode == "surface" then
-                    -- Check if this mapblock is within margin of the surface mapblock
-                    local distance = math.abs(blockpos.y - surface_mapblock_y)
-                    matches = distance <= margin
-                elseif mode == "above" then
-                    -- Check if this mapblock is above the surface (within margin distance)
-                    local distance = blockpos.y - surface_mapblock_y
-                    matches = distance > 0 and distance <= (margin + 1)
-                elseif mode == "below" then
-                    -- Check if this mapblock is below the surface (within margin distance)
-                    local distance = surface_mapblock_y - blockpos.y
-                    matches = distance > 0 and distance <= (margin + 1)
+                -- Check if this is a surface block (at or near surface within margin)
+                if abs_distance <= margin then
+                    return {"surface"}, nil
                 end
                 
-                if matches then
-                    return added_labels, removed_labels
+                -- Check if this is an aboveground block
+                if distance_from_surface > 0 and distance_from_surface <= (margin + 1) then
+                    return {"aboveground"}, nil
+                end
+                
+                -- Check if this is an underground block
+                if distance_from_surface < 0 and abs_distance <= (margin + 1) then
+                    return {"underground"}, nil
                 end
             end
             

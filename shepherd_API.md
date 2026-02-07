@@ -375,42 +375,29 @@ decorations. They are more efficient than post-generation scanning.
 
 `ms.create_surface_finder(args)`
 
-* Creates a surface finder that labels mapblocks during mapgen based on heightmap
-* Uses Luanti's heightmap to detect which mapblocks contain surface terrain
-* `args`: Table with:
-    * `add_labels`: Table (array), labels to add when condition is met
-    * `remove_labels`: Table (array), labels to remove when condition is met
-    * `mode`: String (optional), detection mode (default: "surface")
-        * `"surface"` - Labels mapblocks containing the surface
-        * `"above"` - Labels mapblocks above the surface
-        * `"below"` - Labels mapblocks below the surface
+* Creates a surface finder that automatically labels mapblocks during mapgen based on heightmap
+* Uses Luanti's heightmap to detect which mapblocks are at surface, underground, or aboveground
+* Automatically assigns standard tags:
+    * `"surface"` - Mapblocks at or near the surface (within margin)
+    * `"underground"` - Mapblocks below the surface (within margin distance)
+    * `"aboveground"` - Mapblocks above the surface (within margin distance)
+* `args`: Table (optional) with:
     * `margin`: Number (optional), thickness in mapblocks (default: 0)
-        * `0` - Exact mapblock(s) matching the mode
-        * `1` - Includes one additional mapblock layer
-        * `2` - Includes two additional mapblock layers, etc.
-* Labels mapblocks based on where they are relative to the heightmap surface
+        * `0` - Exact mapblock(s): surface exact, underground/aboveground immediate adjacent
+        * `1` - Includes one additional mapblock layer for each zone
+        * `2` - Includes two additional mapblock layers for each zone, etc.
+* Labels are assigned automatically based on position relative to heightmap
 * Example:
   ```lua
-  -- Label mapblocks containing surface
-  ms.create_surface_finder({
-      add_labels = {"has_surface"},
-      mode = "surface",
-      margin = 0
-  })
+  -- Label mapblocks with standard tags (surface, underground, aboveground)
+  -- with exact positioning (margin 0)
+  ms.create_surface_finder({margin = 0})
   
-  -- Label 2 mapblock layers above surface
-  ms.create_surface_finder({
-      add_labels = {"sky_layer"},
-      mode = "above",
-      margin = 1  -- Includes adjacent + 1 more layer
-  })
+  -- Label mapblocks with 1 additional layer for each zone
+  ms.create_surface_finder({margin = 1})
   
-  -- Label 3 mapblock layers below surface  
-  ms.create_surface_finder({
-      add_labels = {"underground"},
-      mode = "below",
-      margin = 2  -- Includes adjacent + 2 more layers
-  })
+  -- Or use default margin (0)
+  ms.create_surface_finder()
   ```
 
 `ms.create_deco_finder(args)`

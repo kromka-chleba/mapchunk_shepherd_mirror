@@ -21,3 +21,8 @@ local ms = mapchunk_shepherd
 
 -- A tag that is assigned to a mapblock for which a worker failed.
 ms.tag.register("worker_failed")
+
+-- Standard tags for surface detection
+ms.tag.register("surface")
+ms.tag.register("underground")
+ms.tag.register("aboveground")
