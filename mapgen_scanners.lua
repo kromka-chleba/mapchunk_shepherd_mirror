@@ -90,16 +90,30 @@ local surface_finders = {}
 -- processing, similar to biomemap caching.
 --
 -- args: Configuration table:
---   - add_labels (table): Labels to add when surface is found (e.g., {"has_surface"})
---   - remove_labels (table): Labels to remove when surface is found
---   - y_offset (number, optional): Offset from surface level (0 = surface, 1 = one block above, -1 = one below)
---   - y_range (number, optional): Range of blocks around surface to label (default: 0, meaning exact match)
+--   - add_labels (table): Labels to add when condition is met (e.g., {"has_surface"})
+--   - remove_labels (table): Labels to remove when condition is met
+--   - mode (string, optional): Detection mode - "surface", "above", or "below" (default: "surface")
+--       * "surface": Labels mapblocks that contain the surface
+--       * "above": Labels mapblocks above the surface
+--       * "below": Labels mapblocks below the surface
+--   - margin (number, optional): Thickness in mapblocks (default: 0)
+--       * 0: Exact mapblock containing surface (for "surface" mode) or adjacent (for "above"/"below")
+--       * 1: Includes one additional mapblock layer
+--       * 2: Includes two additional mapblock layers, etc.
 function ms.create_surface_finder(args)
     local args = table.copy(args)
     local added_labels = args.add_labels or {}
     local removed_labels = args.remove_labels or {}
-    local y_offset = args.y_offset or 0
-    local y_range = args.y_range or 0
+    local mode = args.mode or "surface"
+    local margin = args.margin or 0
+    
+    -- Validate mode
+    if mode ~= "surface" and mode ~= "above" and mode ~= "below" then
+        error("Invalid mode: " .. tostring(mode) .. ". Must be 'surface', 'above', or 'below'")
+    end
+    
+    -- Get mapblock size once for use in the scanner function
+    local block_size = ms.block_side()
     
     table.insert(
         surface_finders,
@@ -117,23 +131,33 @@ function ms.create_surface_finder(args)
                 end
             end
             
-            -- Calculate the mapblock's Y range in node coordinates
-            local mapblock_min_y = blockpos.y * 16
-            local mapblock_max_y = blockpos.y * 16 + 15
-            
-            -- Adjust for offset and range
-            local target_min_y = mapblock_min_y - y_range
-            local target_max_y = mapblock_max_y + y_range
-            
-            -- Check if any heightmap values (adjusted by offset) fall within this mapblock's Y range
+            -- Check if any heightmap values fall within the detection range
             for _, height_y in ipairs(heightmap) do
-                local adjusted_y = height_y + y_offset
-                if adjusted_y >= target_min_y and adjusted_y <= target_max_y then
+                -- Determine which mapblock contains the surface
+                local surface_mapblock_y = math.floor(height_y / block_size)
+                
+                local matches = false
+                
+                if mode == "surface" then
+                    -- Check if this mapblock is within margin of the surface mapblock
+                    local distance = math.abs(blockpos.y - surface_mapblock_y)
+                    matches = distance <= margin
+                elseif mode == "above" then
+                    -- Check if this mapblock is above the surface (within margin distance)
+                    local distance = blockpos.y - surface_mapblock_y
+                    matches = distance > 0 and distance <= (margin + 1)
+                elseif mode == "below" then
+                    -- Check if this mapblock is below the surface (within margin distance)
+                    local distance = surface_mapblock_y - blockpos.y
+                    matches = distance > 0 and distance <= (margin + 1)
+                end
+                
+                if matches then
                     return added_labels, removed_labels
                 end
             end
             
-            -- No surface found in this mapblock
+            -- No match found in this mapblock
             return nil, nil
         end
     )
