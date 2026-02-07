@@ -73,6 +73,72 @@ local biome_finders = {}
 -- Reset for each mapchunk in mapgen_scanner
 local cached_biomemap_data = nil
 
+-- Cached heightmap data for current mapchunk to avoid redundant processing
+-- Reset for each mapchunk in mapgen_scanner
+local cached_heightmap_data = nil
+
+local surface_finders = {}
+
+-- Creates a surface finder function that labels mapblocks during mapgen.
+-- Detects surface areas in generated mapchunks using heightmap data and adds labels.
+--
+-- The heightmap from core.get_mapgen_object("heightmap") provides y-coordinates
+-- of the ground level for each column in the mapchunk. We use this to determine
+-- which mapblocks contain surface terrain.
+--
+-- OPTIMIZATION: The heightmap is cached at the mapchunk level to avoid redundant
+-- processing, similar to biomemap caching.
+--
+-- args: Configuration table:
+--   - add_labels (table): Labels to add when surface is found (e.g., {"has_surface"})
+--   - remove_labels (table): Labels to remove when surface is found
+--   - y_offset (number, optional): Offset from surface level (0 = surface, 1 = one block above, -1 = one below)
+--   - y_range (number, optional): Range of blocks around surface to label (default: 0, meaning exact match)
+function ms.create_surface_finder(args)
+    local args = table.copy(args)
+    local added_labels = args.add_labels or {}
+    local removed_labels = args.remove_labels or {}
+    local y_offset = args.y_offset or 0
+    local y_range = args.y_range or 0
+    
+    table.insert(
+        surface_finders,
+        function(blockpos, mapgen_args)
+            -- Use cached heightmap data if available (set per mapchunk)
+            local heightmap = cached_heightmap_data
+            
+            if not heightmap then
+                -- Should never happen if mapgen_scanner sets it properly
+                local vm, minp, maxp, blockseed = unpack(mapgen_args)
+                heightmap = core.get_mapgen_object("heightmap")
+                if not heightmap then
+                    -- Heightmap not available for this mapgen
+                    return nil, nil
+                end
+            end
+            
+            -- Calculate the mapblock's Y range in node coordinates
+            local mapblock_min_y = blockpos.y * 16
+            local mapblock_max_y = blockpos.y * 16 + 15
+            
+            -- Adjust for offset and range
+            local target_min_y = mapblock_min_y - y_range
+            local target_max_y = mapblock_max_y + y_range
+            
+            -- Check if any heightmap values (adjusted by offset) fall within this mapblock's Y range
+            for _, height_y in ipairs(heightmap) do
+                local adjusted_y = height_y + y_offset
+                if adjusted_y >= target_min_y and adjusted_y <= target_max_y then
+                    return added_labels, removed_labels
+                end
+            end
+            
+            -- No surface found in this mapblock
+            return nil, nil
+        end
+    )
+end
+
 -- Creates a biome finder function that labels mapblocks during mapgen.
 -- Detects specific biomes in generated mapchunks and adds labels to mapblocks.
 --
@@ -164,6 +230,16 @@ local function mapgen_scanner(vm, minp, maxp, blockseed)
         cached_biomemap_data = nil
     end
     
+    -- Get heightmap for the entire mapchunk once and cache it
+    -- The heightmap contains y-coordinates of ground levels
+    -- This is used by surface finders to avoid redundant processing
+    local heightmap = core.get_mapgen_object("heightmap")
+    if heightmap then
+        cached_heightmap_data = heightmap
+    else
+        cached_heightmap_data = nil
+    end
+    
     -- Calculate mapblock boundaries within the mapchunk
     local minblock = ms.units.mapblock_coords(minp)
     local maxblock = ms.units.mapblock_coords(maxp)
@@ -175,14 +251,16 @@ local function mapgen_scanner(vm, minp, maxp, blockseed)
                 local blockpos = {x = x, y = y, z = z}
                 main_watchdog:set_blockpos(blockpos)
                 main_watchdog:add_scanners(biome_finders)
+                main_watchdog:add_scanners(surface_finders)
                 main_watchdog:run_scanners(mapgen_args)
                 main_watchdog:save_gen_notify()
             end
         end
     end
     
-    -- Clear cache after processing mapchunk
+    -- Clear caches after processing mapchunk
     cached_biomemap_data = nil
+    cached_heightmap_data = nil
     
     --core.log("error", string.format("elapsed time: %g ms", (core.get_us_time() - t1) / 1000))
 end
