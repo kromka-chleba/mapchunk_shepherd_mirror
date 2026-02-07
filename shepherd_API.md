@@ -378,22 +378,27 @@ decorations. They are more efficient than post-generation scanning.
 * Creates a surface finder that automatically labels mapblocks during mapgen based on heightmap
 * Uses Luanti's heightmap to detect which mapblocks are at surface, underground, or aboveground
 * Automatically assigns standard tags:
-    * `"surface"` - Mapblocks at or near the surface (within margin)
-    * `"underground"` - Mapblocks below the surface (within margin distance)
-    * `"aboveground"` - Mapblocks above the surface (within margin distance)
+    * `"surface"` - Mapblocks at or near the surface (thickness controlled by margin)
+    * `"underground"` - All mapblocks below the surface zone
+    * `"aboveground"` - All mapblocks above the surface zone
 * `args`: Table (optional) with:
-    * `margin`: Number (optional), thickness in mapblocks (default: 0)
-        * `0` - Exact mapblock(s): surface exact, underground/aboveground immediate adjacent
-        * `1` - Includes one additional mapblock layer for each zone
-        * `2` - Includes two additional mapblock layers for each zone, etc.
-* Labels are assigned automatically based on position relative to heightmap
+    * `margin`: Number (optional), thickness of surface zone in mapblocks (default: 0)
+        * `0` - Exact mapblock containing surface
+        * `1` - Surface includes ±1 mapblock from surface
+        * `2` - Surface includes ±2 mapblocks from surface, etc.
+* Margin controls surface zone thickness; all blocks beyond that are underground or aboveground
 * Example:
   ```lua
-  -- Label mapblocks with standard tags (surface, underground, aboveground)
-  -- with exact positioning (margin 0)
+  -- Label with exact surface (margin 0)
+  -- Surface: exact mapblock
+  -- Underground: everything below surface
+  -- Aboveground: everything above surface
   ms.create_surface_finder({margin = 0})
   
-  -- Label mapblocks with 1 additional layer for each zone
+  -- Label with thick surface (margin 1)  
+  -- Surface: ±1 mapblock from surface
+  -- Underground: everything more than 1 below surface
+  -- Aboveground: everything more than 1 above surface
   ms.create_surface_finder({margin = 1})
   
   -- Or use default margin (0)

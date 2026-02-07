@@ -81,9 +81,9 @@ local surface_finders = {}
 
 -- Creates a surface finder function that labels mapblocks during mapgen.
 -- Automatically assigns standard tags based on heightmap position:
--- - "surface": Mapblocks at or near the surface (within margin)
--- - "underground": Mapblocks below the surface (within margin distance)
--- - "aboveground": Mapblocks above the surface (within margin distance)
+-- - "surface": Mapblocks at or near the surface (thickness controlled by margin)
+-- - "underground": All mapblocks below the surface zone
+-- - "aboveground": All mapblocks above the surface zone
 --
 -- The heightmap from core.get_mapgen_object("heightmap") provides y-coordinates
 -- of the ground level for each column in the mapchunk. We use this to determine
@@ -93,10 +93,11 @@ local surface_finders = {}
 -- processing, similar to biomemap caching.
 --
 -- args: Configuration table (optional):
---   - margin (number, optional): Thickness in mapblocks for each zone (default: 0)
---       * 0: Exact mapblock containing surface, immediate adjacent blocks for underground/aboveground
---       * 1: Includes one additional mapblock layer for each zone
---       * 2: Includes two additional mapblock layers for each zone, etc.
+--   - margin (number, optional): Thickness of surface zone in mapblocks (default: 0)
+--       * 0: Exact mapblock containing surface
+--       * 1: Surface includes ±1 mapblock from exact surface position
+--       * 2: Surface includes ±2 mapblocks from exact surface position, etc.
+--       * Underground: everything below surface zone; aboveground: everything above surface zone
 function ms.create_surface_finder(args)
     local args = args or {}
     local margin = args.margin or 0
@@ -128,18 +129,18 @@ function ms.create_surface_finder(args)
                 local distance_from_surface = blockpos.y - surface_mapblock_y
                 local abs_distance = math.abs(distance_from_surface)
                 
-                -- Check if this is a surface block (at or near surface within margin)
+                -- Check if this is a surface block (within margin of surface)
                 if abs_distance <= margin then
                     return {"surface"}, nil
                 end
                 
-                -- Check if this is an aboveground block
-                if distance_from_surface > 0 and distance_from_surface <= (margin + 1) then
+                -- Check if this is an aboveground block (above surface zone)
+                if distance_from_surface > margin then
                     return {"aboveground"}, nil
                 end
                 
-                -- Check if this is an underground block
-                if distance_from_surface < 0 and abs_distance <= (margin + 1) then
+                -- Check if this is an underground block (below surface zone)
+                if distance_from_surface < -margin then
                     return {"underground"}, nil
                 end
             end
