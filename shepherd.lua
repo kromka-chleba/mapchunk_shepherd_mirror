@@ -352,6 +352,9 @@ local function get_chunk_label_command_args(name, param)
     if not player then
         return nil, nil, S("Player not found.")
     end
+    if param:match("^%s*$") then
+        return nil, nil, S("Expected: <label> [chunk_hash]")
+    end
     local tag, hash = param:match("^%s*(%S+)%s*(%S*)%s*$")
     if not tag then
         return nil, nil, S("Expected: <label> [chunk_hash]")
@@ -363,15 +366,19 @@ local function get_chunk_label_command_args(name, param)
         end
         hash = ms.mapchunk_hash(pos)
     else
-        local ok = pcall(ms.mapchunk_hash_to_pos, hash)
+        local ok, err = pcall(ms.mapchunk_hash_to_pos, hash)
         if not ok then
-            return nil, nil, S("Invalid chunk hash format: ")..hash
+            return nil, nil, S("Invalid chunk hash format: ")..hash..
+                S(" (")..tostring(err)..S(")")
         end
     end
     return tag, hash
 end
 
 local function change_chunk_label(hash, tag, action)
+    if action ~= "add" and action ~= "remove" then
+        return false, S("Invalid chunk label action: ")..tostring(action)
+    end
     local ok, err = pcall(function()
         local ls = ms.label_store.new(hash)
         if action == "add" then
