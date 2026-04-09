@@ -74,7 +74,7 @@ local function remove_chunk_label(hash, tag)
     ls:save_to_disk()
 end
 
-function ms.register_shepherd_chatcommands(args)
+function ms.register_chat_commands(args)
     core.register_chatcommand(
         "shepherd_status", {
             description = S("Prints status of the Mapchunk Shepherd."),

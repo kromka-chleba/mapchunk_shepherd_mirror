@@ -299,7 +299,7 @@ if ms.ensure_compatibility() then
     core.register_globalstep(player_tracker_loop)
     core.register_globalstep(run_workers)
 end
-ms.register_shepherd_chatcommands({
+ms.register_chat_commands({
     get_workers = function()
         return workers
     end,
