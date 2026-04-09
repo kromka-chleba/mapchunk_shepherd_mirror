@@ -346,3 +346,74 @@ core.register_chatcommand(
                 ..S("labels: ")..label_string.."\n "
         end,
 })
+
+local function parse_label_command_target(name, target_hash)
+    if target_hash and target_hash ~= "" then
+        return target_hash
+    end
+    local player = core.get_player_by_name(name)
+    if not player then
+        return nil, S("Player not found.")
+    end
+    local pos = player:get_pos()
+    if not pos then
+        return nil, S("Could not get player position.")
+    end
+    return ms.mapchunk_hash(pos)
+end
+
+local function parse_label_command_param(param)
+    local tag, target_hash = param:match("^%s*(%S+)%s*(%S*)%s*$")
+    if not tag or tag == "" then
+        return nil, nil, S("Usage: <label> [chunk_hash]")
+    end
+    return tag, target_hash
+end
+
+core.register_chatcommand(
+    "chunk_label_add", {
+        description = S("Adds a label to the current chunk (or [chunk_hash])."),
+        params = S("<label> [chunk_hash]"),
+        privs = {},
+        func = function(name, param)
+            local tag, target_hash, err = parse_label_command_param(param)
+            if err then
+                return false, err
+            end
+            if not ms.tag.check(tag) then
+                return false, S("Label is not a registered tag: ")..tag
+            end
+            local hash, hash_err = parse_label_command_target(name, target_hash)
+            if hash_err then
+                return false, hash_err
+            end
+            local ls = ms.label_store.new(hash)
+            ls:add_labels(tag)
+            ls:save_to_disk()
+            return true, S("Added label '")..tag..S("' to chunk ")..hash
+        end,
+})
+
+core.register_chatcommand(
+    "chunk_label_remove", {
+        description = S("Removes a label from the current chunk (or [chunk_hash])."),
+        params = S("<label> [chunk_hash]"),
+        privs = {},
+        func = function(name, param)
+            local tag, target_hash, err = parse_label_command_param(param)
+            if err then
+                return false, err
+            end
+            if not ms.tag.check(tag) then
+                return false, S("Label is not a registered tag: ")..tag
+            end
+            local hash, hash_err = parse_label_command_target(name, target_hash)
+            if hash_err then
+                return false, hash_err
+            end
+            local ls = ms.label_store.new(hash)
+            ls:remove_labels(tag)
+            ls:save_to_disk()
+            return true, S("Removed label '")..tag..S("' from chunk ")..hash
+        end,
+})
