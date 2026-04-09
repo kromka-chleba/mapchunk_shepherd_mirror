@@ -112,7 +112,8 @@ end
 -- Returns callback ID that can be passed to unregister_on_purged.
 function ms.database.register_on_purged(callback)
     assert(type(callback) == "function",
-           "Mapchunk Shepherd: register_on_purged callback must be a function.")
+           "Mapchunk Shepherd: register_on_purged callback must be a function, got "..
+               type(callback)..".")
     local callback_id = next_callback_id()
     purge_callbacks[callback_id] = callback
     return callback_id
@@ -131,10 +132,7 @@ end
 -- Returns data of the most recently emitted purge event.
 -- Returns nil if no purge event has been emitted yet.
 function ms.database.last_purge_event()
-    if not last_purge_event_data then
-        return nil
-    end
-    return table.copy(last_purge_event_data)
+    return last_purge_event_data and table.copy(last_purge_event_data) or nil
 end
 
 -- Emits "database_purged" event to all registered purge callbacks.
