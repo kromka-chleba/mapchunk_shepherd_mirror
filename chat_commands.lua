@@ -22,65 +22,62 @@ local S = mapchunk_shepherd.S
 -- Globals
 local ms = mapchunk_shepherd
 
-local function parse_tags(param)
-    local tags = {}
-    for token in string.gmatch(param or "", "[^,%s]+") do
-        table.insert(tags, token)
-    end
-    return tags
-end
-
-local function empty_table()
-    return {}
-end
-
-local function zero()
-    return 0
-end
-
-local function get_player_hash(name)
-    local player = core.get_player_by_name(name)
-    if not player then
-        return nil
-    end
-    local pos = player:get_pos()
-    return ms.mapchunk_hash(pos)
-end
-
-local function worker_names(get_workers)
+local function serialize_worker_names(workers)
     local names = {}
-    for _, worker in pairs(get_workers()) do
+    for _, worker in pairs(workers) do
         table.insert(names, worker.name)
     end
     local serialized = core.serialize(names)
     return serialized:gsub("return ", "")
 end
 
-local function label_string(labels)
-    local result = ""
+local function labels_to_string(labels)
+    local descriptions = {}
     for _, label in pairs(labels) do
-        result = result..label:description()..", "
+        table.insert(descriptions, label:description())
     end
-    return result
+    if #descriptions == 0 then
+        return ""
+    end
+    return table.concat(descriptions, ", ")..", "
 end
 
-local function first_unregistered_tag(tags)
-    for _, tag in ipairs(tags) do
-        if not ms.tag.check(tag) then
-            return tag
-        end
+local function parse_label_command_param(param)
+    local tag, target_hash = (param or ""):match("^%s*(%S+)%s*(%S*)%s*$")
+    if not tag or tag == "" then
+        return nil, nil, S("Usage: <label> [chunk_hash]")
     end
-    return nil
+    return tag, target_hash
+end
+
+local function player_chunk_hash(name)
+    local player = core.get_player_by_name(name)
+    if not player then
+        return nil, S("Player not found.")
+    end
+    local pos = player:get_pos()
+    if not pos then
+        return nil, S("Could not get player position.")
+    end
+    return ms.mapchunk_hash(pos)
+end
+
+local function parse_label_command_target(name, target_hash)
+    if target_hash and target_hash ~= "" then
+        return target_hash
+    end
+    return player_chunk_hash(name)
 end
 
 function ms.register_chat_commands(args)
-    args = args or {}
-    local get_workers = args.get_workers or empty_table
-    local get_work_queue = args.get_work_queue or empty_table
-    local get_min_working_time = args.get_min_working_time or zero
-    local get_max_working_time = args.get_max_working_time or zero
-    local get_median_working_time = args.get_median_working_time or zero
-    local get_average_working_time = args.get_average_working_time or zero
+    assert(type(args) == "table", "Mapchunk Shepherd: register_chat_commands expects args table.")
+    assert(type(args.get_workers) == "function", "Mapchunk Shepherd: missing args.get_workers.")
+    assert(type(args.get_min_working_time) == "function", "Mapchunk Shepherd: missing args.get_min_working_time.")
+    assert(type(args.get_max_working_time) == "function", "Mapchunk Shepherd: missing args.get_max_working_time.")
+    assert(type(args.get_median_working_time) == "function", "Mapchunk Shepherd: missing args.get_median_working_time.")
+    assert(type(args.get_average_working_time) == "function", "Mapchunk Shepherd: missing args.get_average_working_time.")
+    assert(type(args.get_work_queue) == "function" or type(args.get_work_queue_size) == "function",
+        "Mapchunk Shepherd: missing args.get_work_queue/get_work_queue_size.")
 
     core.register_chatcommand(
         "shepherd_status", {
@@ -89,13 +86,14 @@ function ms.register_chat_commands(args)
             func = function(name, param)
                 local tracked_chunks_status = S("Tracked chunks: ")..
                     ms.tracked_chunk_counter()
-                local work_queue_status = S("Work queue: ")..#get_work_queue()
-                local worker_status = S("Workers: ")..worker_names(get_workers)
+                local queue_size = args.get_work_queue_size and args.get_work_queue_size() or #args.get_work_queue()
+                local work_queue_status = S("Work queue: ")..queue_size
+                local worker_status = S("Workers: ")..serialize_worker_names(args.get_workers())
                 local time_status = S("Working time: ")..
-                    S("Min: ")..math.ceil(get_min_working_time()).." ms | "..
-                    S("Max: ")..math.ceil(get_max_working_time()).." ms | "..
-                    S("Moving median: ")..get_median_working_time().." ms | "..
-                    S("Moving average: ")..get_average_working_time().." ms"
+                    S("Min: ")..math.ceil(args.get_min_working_time()).." ms | "..
+                    S("Max: ")..math.ceil(args.get_max_working_time()).." ms | "..
+                    S("Moving median: ")..args.get_median_working_time().." ms | "..
+                    S("Moving average: ")..args.get_average_working_time().." ms"
                 return true, tracked_chunks_status.."\n"..
                     work_queue_status.."\n"..time_status.."\n"..
                     worker_status.."\n"
@@ -106,40 +104,75 @@ function ms.register_chat_commands(args)
             description = S("Prints labels of the chunk where the player stands."),
             privs = {},
             func = function(name, param)
-                local hash = get_player_hash(name)
-                if not hash then
-                    return false, S("Player not found.")
+                local hash, hash_err = player_chunk_hash(name)
+                if hash_err then
+                    return false, hash_err
                 end
                 local ls = ms.label_store.new(hash)
                 local labels = ls:get_labels()
                 local last_changed = ms.time_since_last_change(hash)
                 return true, S("hash: ")..hash.."\n"
                     ..S("last changed: ")..last_changed..S(" seconds ago").."\n"
-                    ..S("labels: ")..label_string(labels).."\n "
+                    ..S("labels: ")..labels_to_string(labels).."\n "
             end,
     })
     core.register_chatcommand(
         "chunk_label_add", {
-            description = S("Adds one or more labels to the chunk where the player stands."),
-            privs = {},
-            params = S("<label>[, <label2> ...]"),
+            description = S("Adds a label to the current chunk (or [chunk_hash])."),
+            params = S("<label> [chunk_hash]"),
+            privs = {server = true},
             func = function(name, param)
-                local tags = parse_tags(param)
-                if #tags == 0 then
-                    return false, S("No labels provided.")
+                local tag, target_hash, err = parse_label_command_param(param)
+                if err then
+                    return false, err
                 end
-                local unregistered = first_unregistered_tag(tags)
-                if unregistered then
-                    return false, S("Unregistered label: ")..unregistered
+                if not ms.tag.check(tag) then
+                    return false, S("Label is not a registered tag: ")..tag
                 end
-                local hash = get_player_hash(name)
-                if not hash then
-                    return false, S("Player not found.")
+                local hash, hash_err = parse_label_command_target(name, target_hash)
+                if hash_err then
+                    return false, hash_err
                 end
                 local ls = ms.label_store.new(hash)
-                ls:add_labels(tags)
+                ls:add_labels(tag)
                 ls:save_to_disk()
-                return true, S("Added labels to chunk: ")..table.concat(tags, ", ")
+                return true, S("Added label '")..tag..S("' to chunk ")..hash
+            end,
+    })
+    core.register_chatcommand(
+        "chunk_label_remove", {
+            description = S("Removes a label from the current chunk (or [chunk_hash])."),
+            params = S("<label> [chunk_hash]"),
+            privs = {server = true},
+            func = function(name, param)
+                local tag, target_hash, err = parse_label_command_param(param)
+                if err then
+                    return false, err
+                end
+                if not ms.tag.check(tag) then
+                    return false, S("Label is not a registered tag: ")..tag
+                end
+                local hash, hash_err = parse_label_command_target(name, target_hash)
+                if hash_err then
+                    return false, hash_err
+                end
+                local ls = ms.label_store.new(hash)
+                ls:remove_labels(tag)
+                ls:save_to_disk()
+                return true, S("Removed label '")..tag..S("' from chunk ")..hash
+            end,
+    })
+    core.register_chatcommand(
+        "registered_labels", {
+            description = S("Lists all registered labels (tags)."),
+            privs = {},
+            func = function(name, param)
+                local tags = ms.tag.get_registered()
+                table.sort(tags)
+                if #tags == 0 then
+                    return true, S("No labels are registered.")
+                end
+                return true, S("Registered labels: ")..table.concat(tags, ", ")
             end,
     })
 end
