@@ -61,6 +61,12 @@ ms.database = {}
 local purge_callbacks = {}
 local next_purge_callback_id = 0
 local last_purge_event_data
+local valid_purge_reasons = {
+    initialize = true,
+    manual = true,
+    migration = true,
+    unknown = true,
+}
 
 -- Returns the version of the shepherd database API. The value needs
 -- to be adjusted every time a breaking change in the labeling system
@@ -132,7 +138,10 @@ end
 -- Returns data of the most recently emitted purge event.
 -- Returns nil if no purge event has been emitted yet.
 function ms.database.last_purge_event()
-    return last_purge_event_data and table.copy(last_purge_event_data) or nil
+    if not last_purge_event_data then
+        return nil
+    end
+    return table.copy(last_purge_event_data)
 end
 
 -- Emits "database_purged" event to all registered purge callbacks.
@@ -162,11 +171,18 @@ local function build_purge_event(reason, removed_key_count, old_db_version, old_
     }
 end
 
+local function normalize_purge_reason(reason)
+    if type(reason) ~= "string" then
+        return "unknown"
+    end
+    return valid_purge_reasons[reason] and reason or "unknown"
+end
+
 -- Removes *ALL* keys stored in mod storage for the shepherd.
 -- WARNING: This permanently deletes all mapchunk data!
 -- Only call this for fresh initialization or when explicitly requested.
 function ms.database.purge(reason)
-    local purge_reason = reason or "unknown"
+    local purge_reason = normalize_purge_reason(reason)
     local old_db_version = ms.database.stored_version()
     local old_chunksize = ms.database.chunksize()
     local removed_key_count = 0
