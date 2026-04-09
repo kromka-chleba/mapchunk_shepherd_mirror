@@ -29,11 +29,14 @@ local function serialize_worker_names(workers)
 end
 
 local function labels_to_string(labels)
-    local label_string = ""
+    local descriptions = {}
     for _, label in pairs(labels) do
-        label_string = label_string..label:description()..", "
+        table.insert(descriptions, label:description())
     end
-    return label_string
+    if #descriptions == 0 then
+        return ""
+    end
+    return table.concat(descriptions, ", ")..", "
 end
 
 local function parse_label_command_param(param)
@@ -99,7 +102,13 @@ function ms.register_shepherd_chatcommands(args)
             privs = {},
             func = function(name, param)
                 local player = core.get_player_by_name(name)
+                if not player then
+                    return false, S("Player not found.")
+                end
                 local pos = player:get_pos()
+                if not pos then
+                    return false, S("Could not get player position.")
+                end
                 local hash = ms.mapchunk_hash(pos)
                 local ls = ms.label_store.new(hash)
                 local labels = ls:get_labels()
