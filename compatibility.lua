@@ -67,6 +67,9 @@ local valid_purge_reasons = {
     migration = true,
     unknown = true,
 }
+local purge_state_seq_key = "shepherd_purge_seq"
+local purge_state_reason_key = "shepherd_last_purge_reason"
+local purge_state_event_key = "shepherd_last_purge_event"
 
 -- Returns the version of the shepherd database API. The value needs
 -- to be adjusted every time a breaking change in the labeling system
@@ -108,6 +111,56 @@ function ms.database.too_new()
     return stored > 0 and stored > ms.database.version()
 end
 
+-- Reads persisted purge event data from mod storage.
+-- Returns event table or nil if missing/corrupt.
+local function read_stored_purge_event()
+    local serialized = mod_storage:get_string(purge_state_event_key)
+    if serialized == "" then
+        return nil
+    end
+    local event = core.deserialize(serialized)
+    if type(event) ~= "table" then
+        core.log("warning",
+                 "Mapchunk Shepherd: Stored purge event is corrupted and will be ignored.")
+        return nil
+    end
+    return event
+end
+
+-- Returns durable purge state for migration-aware mods.
+-- Contract:
+-- {
+--   seq = number,        -- monotonic sequence, 0 means no purge recorded yet
+--   reason = string|nil, -- last purge reason
+--   event = table|nil,   -- last purge event payload
+-- }
+function ms.database.get_purge_state()
+    local seq = mod_storage:get_int(purge_state_seq_key)
+    if seq < 0 then
+        seq = 0
+    end
+    local reason = mod_storage:get_string(purge_state_reason_key)
+    if reason == "" then
+        reason = nil
+    end
+    local event = read_stored_purge_event()
+    if not reason and event and type(event.reason) == "string" then
+        reason = event.reason
+    end
+    return {
+        seq = seq,
+        reason = reason,
+        event = event and table.copy(event) or nil,
+    }
+end
+
+-- Persists durable purge marker and metadata.
+local function persist_purge_state(seq, reason, event_data)
+    mod_storage:set_int(purge_state_seq_key, seq)
+    mod_storage:set_string(purge_state_reason_key, reason)
+    mod_storage:set_string(purge_state_event_key, core.serialize(event_data))
+end
+
 -- Returns next unique numeric ID for purge callback registrations.
 local function next_callback_id()
     next_purge_callback_id = next_purge_callback_id + 1
@@ -140,7 +193,12 @@ end
 -- Returns nil if no purge event has been emitted yet.
 function ms.database.last_purge_event()
     if not last_purge_event_data then
-        return nil
+        local state = ms.database.get_purge_state()
+        if state.event then
+            last_purge_event_data = table.copy(state.event)
+        else
+            return nil
+        end
     end
     return table.copy(last_purge_event_data)
 end
@@ -161,9 +219,10 @@ end
 
 -- Builds standardized "database_purged" payload with before/after
 -- compatibility metadata and purge statistics.
-local function build_purge_event(reason, removed_key_count, old_db_version, old_chunksize)
+local function build_purge_event(reason, removed_key_count, old_db_version, old_chunksize, purge_seq)
     return {
         event = "database_purged",
+        purge_seq = purge_seq,
         reason = reason,
         removed_key_count = removed_key_count,
         old_db_version = old_db_version,
@@ -201,13 +260,18 @@ function ms.database.purge(reason)
     local purge_reason = normalize_purge_reason(reason)
     local old_db_version = ms.database.stored_version()
     local old_chunksize = ms.database.chunksize()
+    local old_purge_state = ms.database.get_purge_state()
+    local next_purge_seq = old_purge_state.seq + 1
     local removed_key_count = 0
     core.log("warning", "Mapchunk Shepherd: Purging all database keys from mod storage.")
     for _, key in pairs(mod_storage:get_keys()) do
         mod_storage:set_string(key, "")
         removed_key_count = removed_key_count + 1
     end
-    local event_data = build_purge_event(purge_reason, removed_key_count, old_db_version, old_chunksize)
+    local event_data = build_purge_event(
+        purge_reason, removed_key_count, old_db_version, old_chunksize, next_purge_seq
+    )
+    persist_purge_state(next_purge_seq, purge_reason, event_data)
     ms.database.emit_purged(event_data)
     return event_data
 end
