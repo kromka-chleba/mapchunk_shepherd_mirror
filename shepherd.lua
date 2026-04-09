@@ -417,3 +417,17 @@ core.register_chatcommand(
             return true, S("Removed label '")..tag..S("' from chunk ")..hash
         end,
 })
+
+core.register_chatcommand(
+    "registered_labels", {
+        description = S("Lists all registered labels (tags)."),
+        privs = {},
+        func = function(name, param)
+            local tags = ms.tag.get_registered()
+            table.sort(tags)
+            if #tags == 0 then
+                return true, S("No labels are registered.")
+            end
+            return true, S("Registered labels: ")..table.concat(tags, ", ")
+        end,
+})
