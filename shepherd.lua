@@ -148,18 +148,22 @@ local function get_median_working_time()
     return math.ceil(median)
 end
 
+-- Returns the currently active worker list.
 function ms.get_workers()
     return workers
 end
 
+-- Returns the number of queued chunks waiting for processing.
 function ms.get_work_queue_size()
     return #work_queue
 end
 
+-- Returns the minimum recorded worker execution time in milliseconds.
 function ms.get_min_working_time()
     return min_working_time
 end
 
+-- Returns the maximum recorded worker execution time in milliseconds.
 function ms.get_max_working_time()
     return max_working_time
 end
