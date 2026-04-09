@@ -76,9 +76,9 @@ core.register_chatcommand(
         func = function(name, param)
             local tracked_chunks_status = S("Tracked chunks: ")..
                 ms.tracked_chunk_counter()
-            local queue_size = ms.get_work_queue_size and ms.get_work_queue_size() or 0
+            local queue_size = ms.get_work_queue_size()
             local work_queue_status = S("Work queue: ")..queue_size
-            local workers = ms.get_workers and ms.get_workers() or {}
+            local workers = ms.get_workers()
             local worker_status = S("Workers: ")..serialize_worker_names(workers)
             local min_time = ms.get_min_working_time()
             local max_time = ms.get_max_working_time()
