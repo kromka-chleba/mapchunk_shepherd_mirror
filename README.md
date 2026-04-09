@@ -139,6 +139,8 @@ The mod provides several helper functions for creating common worker patterns:
 ### Chat Commands
 * `/shepherd_status` - Shows shepherd statistics (tracked chunks, work queue, worker timing)
 * `/chunk_labels` - Shows labels of the mapchunk where the player is standing
+* `/chunk_add_label <label> [chunk_hash]` - Adds a label to the current mapchunk by default (or to a specified chunk hash)
+* `/chunk_remove_label <label> [chunk_hash]` - Removes a label from the current mapchunk by default (or from a specified chunk hash)
 
 ## Database and Compatibility
 

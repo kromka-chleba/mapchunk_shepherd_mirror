@@ -346,3 +346,64 @@ core.register_chatcommand(
                 ..S("labels: ")..label_string.."\n "
         end,
 })
+
+local function get_chunk_label_command_args(name, param)
+    local player = core.get_player_by_name(name)
+    if not player then
+        return nil, nil, S("Player not found.")
+    end
+    local tag, hash = param:match("^%s*(%S+)%s*(%S*)%s*$")
+    if not tag then
+        return nil, nil, S("Expected: <label> [chunk_hash]")
+    end
+    if hash == "" then
+        local pos = player:get_pos()
+        if not pos then
+            return nil, nil, S("Could not read player position.")
+        end
+        hash = ms.mapchunk_hash(pos)
+    else
+        local ok = pcall(ms.mapchunk_hash_to_pos, hash)
+        if not ok then
+            return nil, nil, S("Invalid chunk hash: ")..hash
+        end
+    end
+    return tag, hash
+end
+
+core.register_chatcommand(
+    "chunk_add_label", {
+        description = S("Adds a label to the current chunk (or given chunk hash)."),
+        params = S("<label> [chunk_hash]"),
+        privs = {},
+        func = function(name, param)
+            local tag, hash, err = get_chunk_label_command_args(name, param)
+            if err then
+                return false, err
+            end
+            if not ms.tag.check(tag) then
+                return false, S("Unknown label tag: ")..tag
+            end
+            local ls = ms.label_store.new(hash)
+            ls:add_labels(tag)
+            ls:save_to_disk()
+            return true, S("Added label '")..tag..S("' to chunk ")..hash
+        end,
+})
+
+core.register_chatcommand(
+    "chunk_remove_label", {
+        description = S("Removes a label from the current chunk (or given chunk hash)."),
+        params = S("<label> [chunk_hash]"),
+        privs = {},
+        func = function(name, param)
+            local tag, hash, err = get_chunk_label_command_args(name, param)
+            if err then
+                return false, err
+            end
+            local ls = ms.label_store.new(hash)
+            ls:remove_labels(tag)
+            ls:save_to_disk()
+            return true, S("Removed label '")..tag..S("' from chunk ")..hash
+        end,
+})
