@@ -365,10 +365,26 @@ local function get_chunk_label_command_args(name, param)
     else
         local ok = pcall(ms.mapchunk_hash_to_pos, hash)
         if not ok then
-            return nil, nil, S("Invalid chunk hash: ")..hash
+            return nil, nil, S("Invalid chunk hash format: ")..hash
         end
     end
     return tag, hash
+end
+
+local function change_chunk_label(hash, tag, action)
+    local ok, err = pcall(function()
+        local ls = ms.label_store.new(hash)
+        if action == "add" then
+            ls:add_labels(tag)
+        else
+            ls:remove_labels(tag)
+        end
+        ls:save_to_disk()
+    end)
+    if not ok then
+        return false, S("Failed to update chunk labels: ")..tostring(err)
+    end
+    return true
 end
 
 core.register_chatcommand(
@@ -384,9 +400,10 @@ core.register_chatcommand(
             if not ms.tag.check(tag) then
                 return false, S("Unknown label tag: ")..tag
             end
-            local ls = ms.label_store.new(hash)
-            ls:add_labels(tag)
-            ls:save_to_disk()
+            local ok, err_msg = change_chunk_label(hash, tag, "add")
+            if not ok then
+                return false, err_msg
+            end
             return true, S("Added label '")..tag..S("' to chunk ")..hash
         end,
 })
@@ -404,9 +421,10 @@ core.register_chatcommand(
             if not ms.tag.check(tag) then
                 return false, S("Unknown label tag: ")..tag
             end
-            local ls = ms.label_store.new(hash)
-            ls:remove_labels(tag)
-            ls:save_to_disk()
+            local ok, err_msg = change_chunk_label(hash, tag, "remove")
+            if not ok then
+                return false, err_msg
+            end
             return true, S("Removed label '")..tag..S("' from chunk ")..hash
         end,
 })
