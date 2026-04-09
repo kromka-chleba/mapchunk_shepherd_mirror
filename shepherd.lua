@@ -16,9 +16,6 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 --]]
 
--- Internationalization
-local S = mapchunk_shepherd.S
-
 -- Globals
 local ms = mapchunk_shepherd
 
@@ -150,6 +147,29 @@ local function get_median_working_time()
     end
     return math.ceil(median)
 end
+
+-- Returns the currently active worker list.
+function ms.get_workers()
+    return workers
+end
+
+-- Returns the number of queued chunks waiting for processing.
+function ms.get_work_queue_size()
+    return #work_queue
+end
+
+-- Returns the minimum recorded worker execution time in milliseconds.
+function ms.get_min_working_time()
+    return min_working_time
+end
+
+-- Returns the maximum recorded worker execution time in milliseconds.
+function ms.get_max_working_time()
+    return max_working_time
+end
+
+ms.get_median_working_time = get_median_working_time
+ms.get_average_working_time = get_average_working_time
 
 -- Main worker loop that processes one chunk from the work queue per call.
 -- Called as a globalstep callback. Handles worker registration changes,
@@ -299,50 +319,3 @@ if ms.ensure_compatibility() then
     core.register_globalstep(player_tracker_loop)
     core.register_globalstep(run_workers)
 end
-
-core.register_chatcommand(
-    "shepherd_status", {
-        description = S("Prints status of the Mapchunk Shepherd."),
-        privs = {},
-        func = function(name, param)
-            local worker_names = {}
-            for _, worker in pairs(workers) do
-                table.insert(worker_names, worker.name)
-            end
-            worker_names = core.serialize(worker_names)
-            worker_names = worker_names:gsub("return ", "")
-            local nr_of_chunks = ms.tracked_chunk_counter()
-            local tracked_chunks_status = S("Tracked chunks: ")..nr_of_chunks
-            local work_queue_status = S("Work queue: ")..#work_queue
-            local work_time_status = S("Working time: ")..
-                S("Min: ")..math.ceil(min_working_time).." ms | "..
-                S("Max: ")..math.ceil(max_working_time).." ms | "..
-                S("Moving median: ")..get_median_working_time().." ms | "..
-                S("Moving average: ")..get_average_working_time().." ms"
-            local worker_status = S("Workers: ")..worker_names
-            return true, tracked_chunks_status.."\n"..
-                work_queue_status.."\n"..work_time_status.."\n"..
-                worker_status.."\n"
-        end,
-})
-
-core.register_chatcommand(
-    "chunk_labels", {
-        description = S("Prints labels of the chunk where the player stands."),
-        privs = {},
-        func = function(name, param)
-            local player = core.get_player_by_name(name)
-            local pos = player:get_pos()
-            local hash = ms.mapchunk_hash(pos)
-            local ls = ms.label_store.new(hash)
-            local labels = ls:get_labels()
-            local last_changed = ms.time_since_last_change(hash)
-            local label_string = ""
-            for _, label in pairs(labels) do
-                label_string = label_string..label:description()..", "
-            end
-            return true, S("hash: ")..hash.."\n"
-                ..S("last changed: ")..last_changed..S(" seconds ago").."\n"
-                ..S("labels: ")..label_string.."\n "
-        end,
-})
