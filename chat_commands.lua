@@ -80,10 +80,10 @@ core.register_chatcommand(
             local work_queue_status = S("Work queue: ")..queue_size
             local workers = ms.get_workers and ms.get_workers() or {}
             local worker_status = S("Workers: ")..serialize_worker_names(workers)
-            local min_time = ms.get_min_working_time and ms.get_min_working_time() or 0
-            local max_time = ms.get_max_working_time and ms.get_max_working_time() or 0
-            local median_time = ms.get_median_working_time and ms.get_median_working_time() or 0
-            local average_time = ms.get_average_working_time and ms.get_average_working_time() or 0
+            local min_time = ms.get_min_working_time()
+            local max_time = ms.get_max_working_time()
+            local median_time = ms.get_median_working_time()
+            local average_time = ms.get_average_working_time()
             local time_status = S("Working time: ")..
                 S("Min: ")..math.ceil(min_time).." ms | "..
                 S("Max: ")..math.ceil(max_time).." ms | "..
