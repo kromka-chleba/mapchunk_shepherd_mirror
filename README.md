@@ -140,6 +140,32 @@ The mod provides several helper functions for creating common worker patterns:
 * `/shepherd_status` - Shows shepherd statistics (tracked chunks, work queue, worker timing)
 * `/chunk_labels` - Shows labels of the mapchunk where the player is standing
 
+### Database Purge Notifications
+Mods can subscribe to purge notifications to react when shepherd data is deleted.
+
+* `mapchunk_shepherd.database.register_on_purged(callback)`  
+Registers a callback and returns a callback ID.
+
+* `mapchunk_shepherd.database.unregister_on_purged(id)`  
+Unregisters callback by ID, returns `true` if removed.
+
+* `mapchunk_shepherd.database.last_purge_event()`  
+Returns the most recent purge payload or `nil` if no purge happened yet.
+
+Purge payload contract (`database_purged` event):
+* `reason` - Purge reason (`initialize`, `manual`, `migration`, `unknown`)
+* `removed_key_count` - Number of mod storage keys deleted
+* `old_db_version` - Database version before purge
+* `new_db_version` - Database version right after purge
+* `old_chunksize` - Chunksize before purge
+* `new_chunksize` - Chunksize right after purge
+* `gametime` - `core.get_gametime()` at event emission
+
+Behavior guarantees:
+* Callbacks are executed after purge completes.
+* Callback failures are isolated and logged.
+* Keep callbacks lightweight to avoid delaying normal mod execution.
+
 ## Database and Compatibility
 
 The mod uses a versioned database format stored in mod storage. It includes:

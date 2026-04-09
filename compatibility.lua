@@ -58,6 +58,9 @@ function ms.mod_version()
 end
 
 ms.database = {}
+local purge_callbacks = {}
+local next_purge_callback_id = 0
+local last_purge_event_data
 
 -- Returns the version of the shepherd database API. The value needs
 -- to be adjusted every time a breaking change in the labeling system
@@ -99,14 +102,90 @@ function ms.database.too_new()
     return stored > 0 and stored > ms.database.version()
 end
 
+local function next_callback_id()
+    next_purge_callback_id = next_purge_callback_id + 1
+    return next_purge_callback_id
+end
+
+-- Registers callback to run after database purge.
+-- callback receives one argument: purge event payload.
+-- Returns callback ID that can be passed to unregister_on_purged.
+function ms.database.register_on_purged(callback)
+    assert(type(callback) == "function",
+           "Mapchunk Shepherd: register_on_purged callback must be a function.")
+    local callback_id = next_callback_id()
+    purge_callbacks[callback_id] = callback
+    return callback_id
+end
+
+-- Unregisters purge callback by ID returned from register_on_purged.
+-- Returns true if callback existed and was removed.
+function ms.database.unregister_on_purged(callback_id)
+    if purge_callbacks[callback_id] == nil then
+        return false
+    end
+    purge_callbacks[callback_id] = nil
+    return true
+end
+
+-- Returns data of the most recently emitted purge event.
+-- Returns nil if no purge event has been emitted yet.
+function ms.database.last_purge_event()
+    if not last_purge_event_data then
+        return nil
+    end
+    return table.copy(last_purge_event_data)
+end
+
+-- Emits "database_purged" event to all registered purge callbacks.
+-- event_data is forwarded to callbacks and stored as last purge event.
+function ms.database.emit_purged(event_data)
+    last_purge_event_data = table.copy(event_data)
+    for callback_id, callback in pairs(purge_callbacks) do
+        local ok, err = pcall(callback, table.copy(last_purge_event_data))
+        if not ok then
+            core.log("error",
+                     "Mapchunk Shepherd: Purge callback "..callback_id..
+                     " failed: "..tostring(err))
+        end
+    end
+end
+
+local function build_purge_event(reason, removed_key_count, old_db_version, old_chunksize)
+    return {
+        event = "database_purged",
+        reason = reason,
+        removed_key_count = removed_key_count,
+        old_db_version = old_db_version,
+        new_db_version = ms.database.stored_version(),
+        old_chunksize = old_chunksize,
+        new_chunksize = ms.database.chunksize(),
+        gametime = core.get_gametime(),
+    }
+end
+
 -- Removes *ALL* keys stored in mod storage for the shepherd.
 -- WARNING: This permanently deletes all mapchunk data!
 -- Only call this for fresh initialization or when explicitly requested.
-function ms.database.purge()
+function ms.database.purge(reason)
+    local reason = reason or "unknown"
+    local old_db_version = ms.database.stored_version()
+    local old_chunksize = ms.database.chunksize()
+    local removed_key_count = 0
     core.log("warning", "Mapchunk Shepherd: Purging all database keys from mod storage.")
     for _, key in pairs(mod_storage:get_keys()) do
         mod_storage:set_string(key, "")
+        removed_key_count = removed_key_count + 1
     end
+    local event_data = build_purge_event(reason, removed_key_count, old_db_version, old_chunksize)
+    ms.database.emit_purged(event_data)
+    return event_data
+end
+
+-- Explicit/admin purge entry point.
+-- Purges database with reason "manual".
+function ms.database.purge_manual()
+    return ms.database.purge("manual")
 end
 
 -- Initializes a fresh database. This should only be called for new worlds
@@ -115,7 +194,7 @@ function ms.database.initialize()
     if not ms.database.valid() then
         -- Only purge if we're really starting fresh (version is 0)
         if ms.database.stored_version() == 0 then
-            ms.database.purge()
+            ms.database.purge("initialize")
         end
         ms.database.update_version()
         ms.database.update_chunksize()
