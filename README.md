@@ -157,7 +157,7 @@ Additional entry points:
 * `mapchunk_shepherd.database.purge_for_migration()` - migration purge (`reason = "migration"`)
 
 Purge payload contract (`database_purged` event):
-* `reason` - Purge reason (`initialize`, `manual`, `migration`, `unknown`; unsupported/missing reasons are normalized to `unknown`)
+* `reason` - Purge reason (`initialize`, `manual`, `migration`, `unknown`; unsupported/missing/non-string reasons are normalized to `unknown`)
 * `removed_key_count` - Number of mod storage keys deleted
 * `old_db_version` - Database version before purge
 * `new_db_version` - Database version right after purge
@@ -168,6 +168,7 @@ Purge payload contract (`database_purged` event):
 Behavior guarantees:
 * Callbacks are executed after purge completes.
 * Callback failures are isolated and logged.
+* Callback execution order is not guaranteed.
 * Keep callbacks lightweight to avoid delaying normal mod execution.
 
 ## Database and Compatibility

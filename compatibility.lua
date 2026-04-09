@@ -173,9 +173,20 @@ end
 
 local function normalize_purge_reason(reason)
     if type(reason) ~= "string" then
+        if reason ~= nil then
+            core.log("warning",
+                     "Mapchunk Shepherd: Unsupported purge reason type '"..
+                     type(reason).."', falling back to 'unknown'.")
+        end
         return "unknown"
     end
-    return valid_purge_reasons[reason] and reason or "unknown"
+    if not valid_purge_reasons[reason] then
+        core.log("warning",
+                 "Mapchunk Shepherd: Unsupported purge reason '"..
+                 reason.."', falling back to 'unknown'.")
+        return "unknown"
+    end
+    return reason
 end
 
 -- Removes *ALL* keys stored in mod storage for the shepherd.
