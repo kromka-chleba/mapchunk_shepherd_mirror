@@ -155,11 +155,18 @@ Unregisters callback by ID, returns `true` if removed.
 * `mapchunk_shepherd.database.last_purge_event()`  
 Returns the most recent purge payload or `nil` if no purge happened yet.
 
+* `mapchunk_shepherd.database.get_purge_state()`  
+Returns durable purge state: `{seq, reason, event}`.
+  - `seq` is a monotonic purge sequence persisted in mod storage (`0` means no purge recorded yet).
+  - `reason` is the most recent purge reason (or `nil`).
+  - `event` is the most recent purge event payload (or `nil`).
+
 Additional entry points:
 * `mapchunk_shepherd.database.purge_manual()` - explicit/admin purge (`reason = "manual"`)
 * `mapchunk_shepherd.database.purge_for_migration()` - migration purge (`reason = "migration"`)
 
 Purge payload contract (`database_purged` event):
+* `purge_seq` - Monotonic purge sequence number
 * `reason` - Purge reason (`initialize`, `manual`, `migration`, `unknown`; unsupported/missing/non-string reasons are normalized to `unknown`)
 * `removed_key_count` - Number of mod storage keys deleted
 * `old_db_version` - Database version before purge
@@ -173,6 +180,7 @@ Behavior guarantees:
 * Callback failures are isolated and logged.
 * Callback execution order is not guaranteed.
 * Keep callbacks lightweight to avoid delaying normal mod execution.
+* Purge state survives restarts and can be consumed by mods installed after a purge.
 
 ## Database and Compatibility
 
