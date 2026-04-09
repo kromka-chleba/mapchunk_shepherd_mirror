@@ -299,50 +299,19 @@ if ms.ensure_compatibility() then
     core.register_globalstep(player_tracker_loop)
     core.register_globalstep(run_workers)
 end
-
-core.register_chatcommand(
-    "shepherd_status", {
-        description = S("Prints status of the Mapchunk Shepherd."),
-        privs = {},
-        func = function(name, param)
-            local worker_names = {}
-            for _, worker in pairs(workers) do
-                table.insert(worker_names, worker.name)
-            end
-            worker_names = core.serialize(worker_names)
-            worker_names = worker_names:gsub("return ", "")
-            local nr_of_chunks = ms.tracked_chunk_counter()
-            local tracked_chunks_status = S("Tracked chunks: ")..nr_of_chunks
-            local work_queue_status = S("Work queue: ")..#work_queue
-            local work_time_status = S("Working time: ")..
-                S("Min: ")..math.ceil(min_working_time).." ms | "..
-                S("Max: ")..math.ceil(max_working_time).." ms | "..
-                S("Moving median: ")..get_median_working_time().." ms | "..
-                S("Moving average: ")..get_average_working_time().." ms"
-            local worker_status = S("Workers: ")..worker_names
-            return true, tracked_chunks_status.."\n"..
-                work_queue_status.."\n"..work_time_status.."\n"..
-                worker_status.."\n"
-        end,
-})
-
-core.register_chatcommand(
-    "chunk_labels", {
-        description = S("Prints labels of the chunk where the player stands."),
-        privs = {},
-        func = function(name, param)
-            local player = core.get_player_by_name(name)
-            local pos = player:get_pos()
-            local hash = ms.mapchunk_hash(pos)
-            local ls = ms.label_store.new(hash)
-            local labels = ls:get_labels()
-            local last_changed = ms.time_since_last_change(hash)
-            local label_string = ""
-            for _, label in pairs(labels) do
-                label_string = label_string..label:description()..", "
-            end
-            return true, S("hash: ")..hash.."\n"
-                ..S("last changed: ")..last_changed..S(" seconds ago").."\n"
-                ..S("labels: ")..label_string.."\n "
-        end,
+ms.register_chat_commands({
+    get_workers = function()
+        return workers
+    end,
+    get_work_queue_size = function()
+        return #work_queue
+    end,
+    get_min_working_time = function()
+        return min_working_time
+    end,
+    get_max_working_time = function()
+        return max_working_time
+    end,
+    get_median_working_time = get_median_working_time,
+    get_average_working_time = get_average_working_time,
 })
