@@ -108,6 +108,7 @@ function ms.database.too_new()
     return stored > 0 and stored > ms.database.version()
 end
 
+-- Returns next unique numeric ID for purge callback registrations.
 local function next_callback_id()
     next_purge_callback_id = next_purge_callback_id + 1
     return next_purge_callback_id
@@ -158,6 +159,8 @@ function ms.database.emit_purged(event_data)
     end
 end
 
+-- Builds standardized "database_purged" payload with before/after
+-- compatibility metadata and purge statistics.
 local function build_purge_event(reason, removed_key_count, old_db_version, old_chunksize)
     return {
         event = "database_purged",
@@ -171,6 +174,8 @@ local function build_purge_event(reason, removed_key_count, old_db_version, old_
     }
 end
 
+-- Validates and normalizes purge reason to supported contract values.
+-- Unsupported, missing or non-string reasons are converted to "unknown".
 local function normalize_purge_reason(reason)
     if type(reason) ~= "string" then
         if reason ~= nil then
