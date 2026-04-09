@@ -374,7 +374,7 @@ core.register_chatcommand(
     "chunk_label_add", {
         description = S("Adds a label to the current chunk (or [chunk_hash])."),
         params = S("<label> [chunk_hash]"),
-        privs = {},
+        privs = {server = true},
         func = function(name, param)
             local tag, target_hash, err = parse_label_command_param(param)
             if err then
@@ -398,7 +398,7 @@ core.register_chatcommand(
     "chunk_label_remove", {
         description = S("Removes a label from the current chunk (or [chunk_hash])."),
         params = S("<label> [chunk_hash]"),
-        privs = {},
+        privs = {server = true},
         func = function(name, param)
             local tag, target_hash, err = parse_label_command_param(param)
             if err then
