@@ -30,27 +30,12 @@ local function parse_tags(param)
     return tags
 end
 
-local function default_getters(args)
-    return {
-        get_workers = args.get_workers or function()
-            return {}
-        end,
-        get_work_queue = args.get_work_queue or function()
-            return {}
-        end,
-        get_min_working_time = args.get_min_working_time or function()
-            return 0
-        end,
-        get_max_working_time = args.get_max_working_time or function()
-            return 0
-        end,
-        get_median_working_time = args.get_median_working_time or function()
-            return 0
-        end,
-        get_average_working_time = args.get_average_working_time or function()
-            return 0
-        end,
-    }
+local function empty_table()
+    return {}
+end
+
+local function zero()
+    return 0
 end
 
 local function get_player_hash(name)
@@ -71,14 +56,6 @@ local function worker_names(get_workers)
     return serialized:gsub("return ", "")
 end
 
-local function work_time_status(getters)
-    return S("Working time: ")..
-        S("Min: ")..math.ceil(getters.get_min_working_time()).." ms | "..
-        S("Max: ")..math.ceil(getters.get_max_working_time()).." ms | "..
-        S("Moving median: ")..getters.get_median_working_time().." ms | "..
-        S("Moving average: ")..getters.get_average_working_time().." ms"
-end
-
 local function label_string(labels)
     local result = ""
     for _, label in pairs(labels) do
@@ -96,7 +73,15 @@ local function first_unregistered_tag(tags)
     return nil
 end
 
-local function register_shepherd_status(getters)
+function ms.register_chat_commands(args)
+    args = args or {}
+    local get_workers = args.get_workers or empty_table
+    local get_work_queue = args.get_work_queue or empty_table
+    local get_min_working_time = args.get_min_working_time or zero
+    local get_max_working_time = args.get_max_working_time or zero
+    local get_median_working_time = args.get_median_working_time or zero
+    local get_average_working_time = args.get_average_working_time or zero
+
     core.register_chatcommand(
         "shepherd_status", {
             description = S("Prints status of the Mapchunk Shepherd."),
@@ -104,16 +89,18 @@ local function register_shepherd_status(getters)
             func = function(name, param)
                 local tracked_chunks_status = S("Tracked chunks: ")..
                     ms.tracked_chunk_counter()
-                local work_queue_status = S("Work queue: ")..#getters.get_work_queue()
-                local worker_status = S("Workers: ")..worker_names(getters.get_workers)
+                local work_queue_status = S("Work queue: ")..#get_work_queue()
+                local worker_status = S("Workers: ")..worker_names(get_workers)
+                local time_status = S("Working time: ")..
+                    S("Min: ")..math.ceil(get_min_working_time()).." ms | "..
+                    S("Max: ")..math.ceil(get_max_working_time()).." ms | "..
+                    S("Moving median: ")..get_median_working_time().." ms | "..
+                    S("Moving average: ")..get_average_working_time().." ms"
                 return true, tracked_chunks_status.."\n"..
-                    work_queue_status.."\n"..work_time_status(getters).."\n"..
+                    work_queue_status.."\n"..time_status.."\n"..
                     worker_status.."\n"
             end,
     })
-end
-
-local function register_chunk_labels()
     core.register_chatcommand(
         "chunk_labels", {
             description = S("Prints labels of the chunk where the player stands."),
@@ -131,9 +118,6 @@ local function register_chunk_labels()
                     ..S("labels: ")..label_string(labels).."\n "
             end,
     })
-end
-
-local function register_chunk_label_add()
     core.register_chatcommand(
         "chunk_label_add", {
             description = S("Adds one or more labels to the chunk where the player stands."),
@@ -158,11 +142,4 @@ local function register_chunk_label_add()
                 return true, S("Added labels to chunk: ")..table.concat(tags, ", ")
             end,
     })
-end
-
-function ms.register_chat_commands(args)
-    local getters = default_getters(args or {})
-    register_shepherd_status(getters)
-    register_chunk_labels()
-    register_chunk_label_add()
 end
