@@ -148,6 +148,25 @@ local function get_median_working_time()
     return math.ceil(median)
 end
 
+function ms.get_workers()
+    return workers
+end
+
+function ms.get_work_queue_size()
+    return #work_queue
+end
+
+function ms.get_min_working_time()
+    return min_working_time
+end
+
+function ms.get_max_working_time()
+    return max_working_time
+end
+
+ms.get_median_working_time = get_median_working_time
+ms.get_average_working_time = get_average_working_time
+
 -- Main worker loop that processes one chunk from the work queue per call.
 -- Called as a globalstep callback. Handles worker registration changes,
 -- processes one chunk at a time, and schedules the next run.
@@ -296,19 +315,3 @@ if ms.ensure_compatibility() then
     core.register_globalstep(player_tracker_loop)
     core.register_globalstep(run_workers)
 end
-ms.register_chat_commands({
-    get_workers = function()
-        return workers
-    end,
-    get_work_queue = function()
-        return work_queue
-    end,
-    get_min_working_time = function()
-        return min_working_time
-    end,
-    get_max_working_time = function()
-        return max_working_time
-    end,
-    get_median_working_time = get_median_working_time,
-    get_average_working_time = get_average_working_time,
-})
