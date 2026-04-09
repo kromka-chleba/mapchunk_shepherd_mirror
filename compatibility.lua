@@ -168,7 +168,7 @@ end
 -- WARNING: This permanently deletes all mapchunk data!
 -- Only call this for fresh initialization or when explicitly requested.
 function ms.database.purge(reason)
-    local reason = reason or "unknown"
+    local purge_reason = reason or "unknown"
     local old_db_version = ms.database.stored_version()
     local old_chunksize = ms.database.chunksize()
     local removed_key_count = 0
@@ -177,7 +177,7 @@ function ms.database.purge(reason)
         mod_storage:set_string(key, "")
         removed_key_count = removed_key_count + 1
     end
-    local event_data = build_purge_event(reason, removed_key_count, old_db_version, old_chunksize)
+    local event_data = build_purge_event(purge_reason, removed_key_count, old_db_version, old_chunksize)
     ms.database.emit_purged(event_data)
     return event_data
 end
@@ -186,6 +186,12 @@ end
 -- Purges database with reason "manual".
 function ms.database.purge_manual()
     return ms.database.purge("manual")
+end
+
+-- Migration-triggered purge entry point.
+-- Purges database with reason "migration".
+function ms.database.purge_for_migration()
+    return ms.database.purge("migration")
 end
 
 -- Initializes a fresh database. This should only be called for new worlds

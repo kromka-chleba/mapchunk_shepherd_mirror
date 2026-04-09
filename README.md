@@ -152,6 +152,10 @@ Unregisters callback by ID, returns `true` if removed.
 * `mapchunk_shepherd.database.last_purge_event()`  
 Returns the most recent purge payload or `nil` if no purge happened yet.
 
+Additional entry points:
+* `mapchunk_shepherd.database.purge_manual()` - explicit/admin purge (`reason = "manual"`)
+* `mapchunk_shepherd.database.purge_for_migration()` - migration purge (`reason = "migration"`)
+
 Purge payload contract (`database_purged` event):
 * `reason` - Purge reason (`initialize`, `manual`, `migration`, `unknown`)
 * `removed_key_count` - Number of mod storage keys deleted
