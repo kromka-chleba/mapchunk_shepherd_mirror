@@ -70,7 +70,7 @@ local valid_purge_reasons = {
 local purge_state_seq_key = "shepherd_purge_seq"
 local purge_state_reason_key = "shepherd_last_purge_reason"
 local purge_state_event_key = "shepherd_last_purge_event"
-local v4_compat_modname = "shepherd_v4_compat"
+local migration_autopurge_setting = "mapchunk_shepherd_auto_migration_purge"
 
 -- Returns the version of the shepherd database API. The value needs
 -- to be adjusted every time a breaking change in the labeling system
@@ -290,13 +290,13 @@ function ms.database.purge_for_migration()
 end
 
 -- Returns true when a one-shot startup migration purge should be
--- auto-triggered for shepherd_v4_compat integration.
+-- auto-triggered through explicit generic configuration.
 -- Conditions are intentionally strict:
--- * shepherd_v4_compat mod is present
+-- * mapchunk_shepherd_auto_migration_purge setting is enabled
 -- * database is already initialized and considered compatible
 -- * no previous purge has been recorded yet (legacy worlds)
 local function should_auto_purge_for_migration()
-    if not core.get_modpath(v4_compat_modname) then
+    if not core.settings:get_bool(migration_autopurge_setting, false) then
         return false
     end
     if not ms.database.valid() then
@@ -440,8 +440,8 @@ function ms.ensure_compatibility()
 
     if should_auto_purge_for_migration() then
         core.log("warning",
-                 string.format("Mapchunk Shepherd: Detected legacy purge state with %s enabled; auto-triggering one-time migration purge.",
-                               v4_compat_modname))
+                 string.format("Mapchunk Shepherd: Setting %s enabled with legacy purge state; auto-triggering one-time migration purge.",
+                               migration_autopurge_setting))
         ms.database.purge_for_migration()
     end
 

@@ -164,8 +164,9 @@ Returns durable purge state: `{seq, reason, event}`.
 Additional entry points:
 * `mapchunk_shepherd.database.purge_manual()` - explicit/admin purge (`reason = "manual"`)
 * `mapchunk_shepherd.database.purge_for_migration()` - migration purge (`reason = "migration"`)
-* Startup integration: when `shepherd_v4_compat` is installed, shepherd auto-triggers
-  a one-time migration purge for legacy worlds that have no recorded purge state yet.
+* Startup integration: when setting `mapchunk_shepherd_auto_migration_purge = true`,
+  shepherd auto-triggers a one-time migration purge for legacy worlds that have no
+  recorded purge state yet.
 
 Purge payload contract (`database_purged` event):
 * `purge_seq` - Monotonic purge sequence number
