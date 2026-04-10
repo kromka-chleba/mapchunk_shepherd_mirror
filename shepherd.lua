@@ -314,7 +314,7 @@ end
 
 -- Only start the shepherd if the database format is correct and
 -- chunksize did not change.
-core.register_on_mods_loaded(function()
+core.after(0, function()
     if ms.ensure_compatibility() then
         -- Start the tracker
         core.register_globalstep(player_tracker_loop)
