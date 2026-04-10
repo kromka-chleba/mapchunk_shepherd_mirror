@@ -293,8 +293,12 @@ end
 function ms.database.initialize()
     if not ms.database.valid() then
         -- Only purge if we're really starting fresh (version is 0)
+        -- and no purge has occurred yet (purge sequence is 0).
         if ms.database.stored_version() == 0 then
-            ms.database.purge("initialize")
+            local purge_state = ms.database.get_purge_state()
+            if purge_state.seq == 0 then
+                ms.database.purge("initialize")
+            end
         end
         ms.database.update_version()
         ms.database.update_chunksize()
@@ -388,9 +392,10 @@ function ms.ensure_compatibility()
         -- This only applies to databases with version < 1 and stored_chunksize of 80
         if stored_chunksize == 80 and stored_version < 1 then
             core.log("action", "Mapchunk Shepherd: Detected legacy chunksize format (80 nodes).")
-            core.log("action", "Mapchunk Shepherd: Migrating to new format with chunksize "..
+            core.log("warning", "Mapchunk Shepherd: Legacy format migration requires purge to keep data consistent.")
+            core.log("action", "Mapchunk Shepherd: Purging database and migrating to new format with chunksize "..
                          sizes.mapchunk.in_mapblocks.." mapblocks.")
-            ms.database.update_chunksize()
+            ms.database.purge_for_migration()
             -- Continue with normal initialization/conversion flow
         else
             -- Regular chunksize change error
@@ -419,7 +424,7 @@ function ms.ensure_compatibility()
             return false
         end
     end
-    
+
     core.log("action", "Mapchunk Shepherd: Database compatibility check passed.")
     core.log("action", "Mapchunk Shepherd: Using database version "..ms.database.version()..
                  " with chunksize "..sizes.mapchunk.in_mapblocks..".")
