@@ -444,7 +444,7 @@ function ms.ensure_compatibility()
                                v4_compat_modname))
         ms.database.purge_for_migration()
     end
-    
+
     core.log("action", "Mapchunk Shepherd: Database compatibility check passed.")
     core.log("action", "Mapchunk Shepherd: Using database version "..ms.database.version()..
                  " with chunksize "..sizes.mapchunk.in_mapblocks..".")
