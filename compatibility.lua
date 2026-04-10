@@ -305,9 +305,13 @@ function ms.database.purge_for_migration()
     return ms.database.purge("migration")
 end
 
--- Initializes an unversioned database and sets version/chunksize metadata.
--- Distinguishes truly new worlds (empty mod storage) from legacy/corrupt
--- unversioned storage that still contains keys.
+-- Initializes shepherd database metadata for unversioned storage.
+-- Parameters: none.
+-- Returns: nothing.
+-- Behavior:
+--   * new_world          -> runs initialize purge once, then stores version/chunksize
+--   * legacy_or_corrupt  -> runs migration purge once, then stores version/chunksize
+--   * initialized        -> no-op (function exits via ms.database.valid() guard)
 function ms.database.initialize()
     if not ms.database.valid() then
         local bootstrap_state = ms.database.bootstrap_state()
@@ -320,7 +324,8 @@ function ms.database.initialize()
             elseif bootstrap_state == "legacy_or_corrupt" then
                 core.log("warning",
                          "Mapchunk Shepherd: Unversioned database contains keys. "..
-                         "Treating storage as legacy/corrupt and running migration purge.")
+                         "This may indicate corrupted storage or an upgrade from a very old version. "..
+                         "Data will be reinitialized via migration purge.")
                 ms.database.purge_for_migration()
             end
         end
