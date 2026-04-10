@@ -70,6 +70,7 @@ local valid_purge_reasons = {
 local purge_state_seq_key = "shepherd_purge_seq"
 local purge_state_reason_key = "shepherd_last_purge_reason"
 local purge_state_event_key = "shepherd_last_purge_event"
+local v4_compat_modname = "shepherd_v4_compat"
 
 -- Returns the version of the shepherd database API. The value needs
 -- to be adjusted every time a breaking change in the labeling system
@@ -288,6 +289,23 @@ function ms.database.purge_for_migration()
     return ms.database.purge("migration")
 end
 
+-- Returns true when a one-shot startup migration purge should be
+-- auto-triggered for shepherd_v4_compat integration.
+-- Conditions are intentionally strict:
+-- * shepherd_v4_compat mod is present
+-- * database is already initialized and considered compatible
+-- * no previous purge has been recorded yet (legacy worlds)
+local function should_auto_purge_for_migration()
+    if not core.get_modpath(v4_compat_modname) then
+        return false
+    end
+    if not ms.database.valid() then
+        return false
+    end
+    local purge_state = ms.database.get_purge_state()
+    return purge_state.seq == 0
+end
+
 -- Initializes a fresh database. This should only be called for new worlds
 -- or when mod storage is empty. Sets version and chunksize.
 function ms.database.initialize()
@@ -418,6 +436,13 @@ function ms.ensure_compatibility()
             core.log("error", "Mapchunk Shepherd: Refusing to start.")
             return false
         end
+    end
+
+    if should_auto_purge_for_migration() then
+        core.log("warning",
+                 "Mapchunk Shepherd: Detected legacy purge state with "..v4_compat_modname..
+                 " enabled; auto-triggering one-time migration purge.")
+        ms.database.purge_for_migration()
     end
     
     core.log("action", "Mapchunk Shepherd: Database compatibility check passed.")
