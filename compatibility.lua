@@ -70,8 +70,6 @@ local valid_purge_reasons = {
 local purge_state_seq_key = "shepherd_purge_seq"
 local purge_state_reason_key = "shepherd_last_purge_reason"
 local purge_state_event_key = "shepherd_last_purge_event"
-local migration_autopurge_setting = "mapchunk_shepherd_auto_migration_purge"
-local MIGRATION_AUTOPURGE_DEFAULT = false
 
 -- Returns the version of the shepherd database API. The value needs
 -- to be adjusted every time a breaking change in the labeling system
@@ -290,29 +288,14 @@ function ms.database.purge_for_migration()
     return ms.database.purge("migration")
 end
 
--- Returns true when a one-shot startup migration purge should be
--- auto-triggered through explicit generic configuration.
--- Conditions are intentionally strict:
--- * mapchunk_shepherd_auto_migration_purge setting is enabled
--- * database is already initialized and considered compatible
--- * no previous purge has been recorded yet (legacy worlds)
-local function should_auto_purge_for_migration()
-    if not core.settings:get_bool(migration_autopurge_setting, MIGRATION_AUTOPURGE_DEFAULT) then
-        return false
-    end
-    if not ms.database.valid() then
-        return false
-    end
-    local purge_state = ms.database.get_purge_state()
-    return purge_state.seq == 0
-end
-
 -- Initializes a fresh database. This should only be called for new worlds
 -- or when mod storage is empty. Sets version and chunksize.
 function ms.database.initialize()
     if not ms.database.valid() then
         -- Only purge if we're really starting fresh (version is 0)
-        if ms.database.stored_version() == 0 then
+        -- and no purge event has been recorded yet.
+        local purge_state = ms.database.get_purge_state()
+        if ms.database.stored_version() == 0 and purge_state.seq == 0 then
             ms.database.purge("initialize")
         end
         ms.database.update_version()
@@ -407,9 +390,10 @@ function ms.ensure_compatibility()
         -- This only applies to databases with version < 1 and stored_chunksize of 80
         if stored_chunksize == 80 and stored_version < 1 then
             core.log("action", "Mapchunk Shepherd: Detected legacy chunksize format (80 nodes).")
-            core.log("action", "Mapchunk Shepherd: Migrating to new format with chunksize "..
+            core.log("warning", "Mapchunk Shepherd: Legacy format migration requires purge to keep data consistent.")
+            core.log("action", "Mapchunk Shepherd: Purging database and migrating to new format with chunksize "..
                          sizes.mapchunk.in_mapblocks.." mapblocks.")
-            ms.database.update_chunksize()
+            ms.database.purge_for_migration()
             -- Continue with normal initialization/conversion flow
         else
             -- Regular chunksize change error
@@ -437,13 +421,6 @@ function ms.ensure_compatibility()
             core.log("error", "Mapchunk Shepherd: Refusing to start.")
             return false
         end
-    end
-
-    if should_auto_purge_for_migration() then
-        core.log("warning",
-                 string.format("Mapchunk Shepherd: Setting '%s' enabled with legacy purge state; auto-triggering one-time migration purge.",
-                               migration_autopurge_setting))
-        ms.database.purge_for_migration()
     end
 
     core.log("action", "Mapchunk Shepherd: Database compatibility check passed.")
