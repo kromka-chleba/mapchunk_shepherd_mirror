@@ -440,8 +440,8 @@ function ms.ensure_compatibility()
 
     if should_auto_purge_for_migration() then
         core.log("warning",
-                 "Mapchunk Shepherd: Detected legacy purge state with "..v4_compat_modname..
-                 " enabled; auto-triggering one-time migration purge.")
+                 string.format("Mapchunk Shepherd: Detected legacy purge state with %s enabled; auto-triggering one-time migration purge.",
+                               v4_compat_modname))
         ms.database.purge_for_migration()
     end
     
