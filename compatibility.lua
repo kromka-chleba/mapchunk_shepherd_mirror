@@ -72,7 +72,7 @@ local purge_state_reason_key = "shepherd_last_purge_reason"
 local purge_state_event_key = "shepherd_last_purge_event"
 local gametime_available = false
 
-core.register_globalstep(function()
+core.after(0, function()
     gametime_available = true
 end)
 
