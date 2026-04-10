@@ -104,6 +104,23 @@ function ms.database.valid()
     return ms.database.stored_version() ~= 0
 end
 
+-- Classifies unversioned database state to distinguish a truly new world
+-- from legacy/corrupt storage containing keys without a version marker.
+-- Returns:
+--  - "initialized" when shepherd_db_version is set
+--  - "new_world" when storage is fully empty
+--  - "legacy_or_corrupt" when storage has keys but no version marker
+function ms.database.bootstrap_state()
+    if ms.database.stored_version() ~= 0 then
+        return "initialized"
+    end
+    local keys = mod_storage:get_keys()
+    if #keys == 0 then
+        return "new_world"
+    end
+    return "legacy_or_corrupt"
+end
+
 -- Checks if the database is too new for this version of the shepherd.
 -- Returns true if stored version is higher than supported version.
 function ms.database.too_new()
@@ -288,16 +305,23 @@ function ms.database.purge_for_migration()
     return ms.database.purge("migration")
 end
 
--- Initializes a fresh database. This should only be called for new worlds
--- or when mod storage is empty. Sets version and chunksize.
+-- Initializes an unversioned database and sets version/chunksize metadata.
+-- Distinguishes truly new worlds (empty mod storage) from legacy/corrupt
+-- unversioned storage that still contains keys.
 function ms.database.initialize()
     if not ms.database.valid() then
-        -- Only purge if we're really starting fresh (version is 0)
-        -- and no purge has occurred yet (purge sequence is 0).
-        if ms.database.stored_version() == 0 then
-            local purge_state = ms.database.get_purge_state()
-            if purge_state.seq == 0 then
+        local bootstrap_state = ms.database.bootstrap_state()
+        local purge_state = ms.database.get_purge_state()
+
+        -- Only purge once for unversioned databases.
+        if purge_state.seq == 0 then
+            if bootstrap_state == "new_world" then
                 ms.database.purge("initialize")
+            elseif bootstrap_state == "legacy_or_corrupt" then
+                core.log("warning",
+                         "Mapchunk Shepherd: Unversioned database contains keys. "..
+                         "Treating storage as legacy/corrupt and purging.")
+                ms.database.purge("unknown")
             end
         end
         ms.database.update_version()
