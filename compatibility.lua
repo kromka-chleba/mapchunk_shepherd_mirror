@@ -294,9 +294,11 @@ function ms.database.initialize()
     if not ms.database.valid() then
         -- Only purge if we're really starting fresh (version is 0)
         -- and no purge has occurred yet (purge sequence is 0).
-        local purge_state = ms.database.get_purge_state()
-        if ms.database.stored_version() == 0 and purge_state.seq == 0 then
-            ms.database.purge("initialize")
+        if ms.database.stored_version() == 0 then
+            local purge_state = ms.database.get_purge_state()
+            if purge_state.seq == 0 then
+                ms.database.purge("initialize")
+            end
         end
         ms.database.update_version()
         ms.database.update_chunksize()
