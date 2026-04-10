@@ -306,34 +306,33 @@ function ms.database.purge_for_migration()
 end
 
 -- Initializes shepherd database metadata during bootstrap state handling.
--- Parameters: none.
--- Returns: nothing.
 -- Behavior:
 --   * new_world          -> runs initialize purge once, then stores version/chunksize
 --   * legacy_or_corrupt  -> runs migration purge once, then stores version/chunksize
 --   * initialized        -> no-op (function exits via ms.database.valid() guard)
 function ms.database.initialize()
-    if not ms.database.valid() then
-        local bootstrap_state = ms.database.bootstrap_state()
-        local purge_state = ms.database.get_purge_state()
-
-        -- Only purge once for unversioned databases.
-        if purge_state.seq == 0 then
-            if bootstrap_state == "new_world" then
-                ms.database.purge("initialize")
-            elseif bootstrap_state == "legacy_or_corrupt" then
-                core.log("warning",
-                         "Mapchunk Shepherd: Unversioned database contains keys. "..
-                         "This may indicate corrupted storage or an upgrade from a very old version. "..
-                         "Shepherd mod-storage data will be purged and rebuilt via migration purge.")
-                ms.database.purge_for_migration()
-            end
-        end
-        ms.database.update_version()
-        ms.database.update_chunksize()
-        core.log("action", "Mapchunk Shepherd: Database initialized with version "..
-                     ms.database.version().." and chunksize "..sizes.mapchunk.in_mapblocks..".")
+    if ms.database.valid() then
+        return
     end
+    local bootstrap_state = ms.database.bootstrap_state()
+    local purge_state = ms.database.get_purge_state()
+
+    -- Only purge once for unversioned databases.
+    if purge_state.seq == 0 then
+        if bootstrap_state == "new_world" then
+            ms.database.purge("initialize")
+        elseif bootstrap_state == "legacy_or_corrupt" then
+            core.log("warning",
+                     "Mapchunk Shepherd: Unversioned database contains keys. "..
+                     "This may indicate corrupted storage or an upgrade from a very old version. "..
+                     "Shepherd mod-storage data will be purged and rebuilt via migration purge.")
+            ms.database.purge_for_migration()
+        end
+    end
+    ms.database.update_version()
+    ms.database.update_chunksize()
+    core.log("action", "Mapchunk Shepherd: Database initialized with version "..
+                 ms.database.version().." and chunksize "..sizes.mapchunk.in_mapblocks..".")
 end
 
 -- Returns the chunksize stored in mod storage.
