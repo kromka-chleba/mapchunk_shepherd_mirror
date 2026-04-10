@@ -314,6 +314,8 @@ end
 
 -- Only start the shepherd if the database format is correct and
 -- chunksize did not change.
+-- Deferred by one step to avoid calling init-disallowed engine APIs
+-- (e.g. gametime reads used by purge event payloads) during script init.
 core.after(0, function()
     if ms.ensure_compatibility() then
         -- Start the tracker
