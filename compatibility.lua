@@ -71,6 +71,7 @@ local purge_state_seq_key = "shepherd_purge_seq"
 local purge_state_reason_key = "shepherd_last_purge_reason"
 local purge_state_event_key = "shepherd_last_purge_event"
 local migration_autopurge_setting = "mapchunk_shepherd_auto_migration_purge"
+local migration_autopurge_default = false
 
 -- Returns the version of the shepherd database API. The value needs
 -- to be adjusted every time a breaking change in the labeling system
@@ -296,7 +297,7 @@ end
 -- * database is already initialized and considered compatible
 -- * no previous purge has been recorded yet (legacy worlds)
 local function should_auto_purge_for_migration()
-    if not core.settings:get_bool(migration_autopurge_setting, false) then
+    if not core.settings:get_bool(migration_autopurge_setting, migration_autopurge_default) then
         return false
     end
     if not ms.database.valid() then
@@ -440,7 +441,7 @@ function ms.ensure_compatibility()
 
     if should_auto_purge_for_migration() then
         core.log("warning",
-                 string.format("Mapchunk Shepherd: Setting %s enabled with legacy purge state; auto-triggering one-time migration purge.",
+                 string.format("Mapchunk Shepherd: Setting '%s' enabled with legacy purge state; auto-triggering one-time migration purge.",
                                migration_autopurge_setting))
         ms.database.purge_for_migration()
     end
