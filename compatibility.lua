@@ -305,7 +305,7 @@ function ms.database.purge_for_migration()
     return ms.database.purge("migration")
 end
 
--- Initializes shepherd database metadata for unversioned storage.
+-- Initializes shepherd database metadata during bootstrap state handling.
 -- Parameters: none.
 -- Returns: nothing.
 -- Behavior:
@@ -325,7 +325,7 @@ function ms.database.initialize()
                 core.log("warning",
                          "Mapchunk Shepherd: Unversioned database contains keys. "..
                          "This may indicate corrupted storage or an upgrade from a very old version. "..
-                         "Data will be reinitialized via migration purge.")
+                         "Shepherd mod-storage data will be purged and rebuilt via migration purge.")
                 ms.database.purge_for_migration()
             end
         end
