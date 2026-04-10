@@ -320,8 +320,8 @@ function ms.database.initialize()
             elseif bootstrap_state == "legacy_or_corrupt" then
                 core.log("warning",
                          "Mapchunk Shepherd: Unversioned database contains keys. "..
-                         "Treating storage as legacy/corrupt and purging.")
-                ms.database.purge("unknown")
+                         "Treating storage as legacy/corrupt and running migration purge.")
+                ms.database.purge_for_migration()
             end
         end
         ms.database.update_version()
