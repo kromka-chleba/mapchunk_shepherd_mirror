@@ -70,6 +70,11 @@ local valid_purge_reasons = {
 local purge_state_seq_key = "shepherd_purge_seq"
 local purge_state_reason_key = "shepherd_last_purge_reason"
 local purge_state_event_key = "shepherd_last_purge_event"
+local gametime_available = false
+
+core.register_globalstep(function()
+    gametime_available = true
+end)
 
 -- Returns the version of the shepherd database API. The value needs
 -- to be adjusted every time a breaking change in the labeling system
@@ -220,6 +225,10 @@ end
 -- Builds standardized "database_purged" payload with before/after
 -- compatibility metadata and purge statistics.
 local function build_purge_event(reason, removed_key_count, old_db_version, old_chunksize, purge_seq)
+    local gametime = 0
+    if gametime_available then
+        gametime = core.get_gametime()
+    end
     return {
         event = "database_purged",
         purge_seq = purge_seq,
@@ -229,7 +238,7 @@ local function build_purge_event(reason, removed_key_count, old_db_version, old_
         new_db_version = ms.database.stored_version(),
         old_chunksize = old_chunksize,
         new_chunksize = ms.database.chunksize(),
-        gametime = core.get_gametime(),
+        gametime = gametime,
     }
 end
 
